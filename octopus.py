@@ -35,7 +35,7 @@ def getOctopusMeters():
         gsns = [x['serial_number'] for x in data['properties'][0]['gas_meter_points'][0]['meters']]
         return mpan, esns, mprn, gsns 
     except Exception:
-        print('failed')
+        print('failed to get meter ids')
         return False, 0, 0, 0
     
 
@@ -116,7 +116,6 @@ def updateInfluxDB(df, typ, outdir):
     url, usr, pwd = getInfluxUrl()
     meas = getMeasurementName(typ)
     idbdata = convertToIdbFmt(df, meas, outdir=outdir)
-    print(url, usr, pwd, meas)
     # curl -i -XPOST -u $influxuser:$influxpw "http://$influxserver:$influxport/write?db=$influxdatbase" --data-binary @$i
     authn = HTTPBasicAuth(usr, pwd)
     requests.post(url, data=idbdata, auth=authn)
@@ -125,4 +124,5 @@ def updateInfluxDB(df, typ, outdir):
 
 if __name__ == '__main__': 
     mpan, esns, mprn, gsns = getOctopusMeters()
-    getDataFromOctopus(mpan, esns, mprn, gsns)
+    if mpan:
+        getDataFromOctopus(mpan, esns, mprn, gsns)

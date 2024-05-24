@@ -1,0 +1,30 @@
+- hosts: ohserver
+  vars:
+    srcdir: /mnt/e/dev/energy/octopus_integration
+  tasks:
+  - name: import variables 
+    include_vars: local-vars.yml
+  - name: Ensures logdir exists
+    file: path=~/logs state=directory  
+  - name: Ensures datadir exists
+    file: path={{datadir}} state=directory  
+  - name: Copy files
+    copy: src={{ item.src }} dest={{ item.dest }} mode={{ item.mode }}
+    with_items:
+    - {src: '{{srcdir}}/influxconfig.py', dest: '{{destdir}}/', mode: '644', backup: yes }
+    - {src: '{{srcdir}}/loadconfig.py', dest: '{{destdir}}/', mode: '644', backup: yes }
+    - {src: '{{srcdir}}/octopus.py', dest: '{{destdir}}/', mode: '644', backup: yes }
+    - {src: '{{srcdir}}/getOctopusData.sh', dest: '{{destdir}}/', mode: '754', backup: yes }
+    - {src: '{{srcdir}}/requirements.txt', dest: '{{destdir}}/', mode: '754', backup: yes }
+    - {src: '~/.ssh/influxdb', dest: '~/.ssh/', mode: '600', backup: yes }
+    - {src: '~/.ssh/octopus_apikey', dest: '~/.ssh/', mode: '600', backup: yes }
+  - name: set datadir
+    replace: 
+      path: '{{destdir}}/loadconfig.py'
+      regexp: 'DATADIRSUBST'
+      replace: '{{ datadir }}'
+  - name: Check requirements
+    shell: . ~/.bashrc && conda activate openhabstuff && pip install -r {{destdir}}/requirements.txt
+    args:
+      executable: /bin/bash
+    

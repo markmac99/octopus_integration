@@ -14,7 +14,7 @@ def getInfluxUrl():
     influxport = 8086
     influxdatabase = 'openhab'
     influxurl = f'http://{influxserver}:{influxport}/write?db={influxdatabase}'
-    return influxurl, usr, pwd
+    return influxurl, usr, pwd, influxserver, influxport, influxdatabase
 
 
 def getMeasurementName(typ):

@@ -113,7 +113,7 @@ def convertToIdbFmt(df, meas, outdir):
     
 
 def updateInfluxDB(df, typ, outdir):
-    url, usr, pwd = getInfluxUrl()
+    url, usr, pwd, _, _, _ = getInfluxUrl()
     meas = getMeasurementName(typ)
     idbdata = convertToIdbFmt(df, meas, outdir=outdir)
     # curl -i -XPOST -u $influxuser:$influxpw "http://$influxserver:$influxport/write?db=$influxdatbase" --data-binary @$i

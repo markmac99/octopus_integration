@@ -5,6 +5,7 @@
 import datetime
 from influxconfig import getInfluxUrl
 from influxdb import InfluxDBClient
+from updateOpenhab import updateMeterReading
 
 
 def updateDailyHouseElectricity(sd):
@@ -67,10 +68,12 @@ def updateElecMeter(sd=None):
         if vals:
             currentmeter = vals.raw['series'][-1]['values'][0][1]
         currentmeter += usage
-        print(f'updating elemeter for {ts1} with {currentmeter}')
+        #print(f'updating elemeter for {ts1} with {currentmeter}')
         jsbody = [{"measurement": "HouseElectricityMeterReading","time": f"{ts2}","fields": {"value": round(currentmeter,1)}}]
         client.write_points(jsbody)
         sd = ed
+    print(f'updated electricity meter to {currentmeter} as of {ed}')
+    updateMeterReading(currentmeter, ed, True)
 
 
 if __name__ == '__main__': 

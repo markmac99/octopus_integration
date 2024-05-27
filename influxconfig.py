@@ -10,7 +10,7 @@ def getInfluxUrl():
     with open(passwordfile) as inf:
         usr = inf.readline().strip()
         pwd = inf.readline().strip()    
-    influxserver = 'wxsatpi'
+    influxserver = 'ohserver'
     influxport = 8086
     influxdatabase = 'openhab'
     influxurl = f'http://{influxserver}:{influxport}/write?db={influxdatabase}'

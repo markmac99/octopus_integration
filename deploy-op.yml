@@ -14,12 +14,14 @@
     - {src: '{{srcdir}}/influxconfig.py', dest: '{{destdir}}/', mode: '644', backup: yes }
     - {src: '{{srcdir}}/loadconfig.py', dest: '{{destdir}}/', mode: '644', backup: yes }
     - {src: '{{srcdir}}/octopus.py', dest: '{{destdir}}/', mode: '644', backup: yes }
+    - {src: '{{srcdir}}/updateOpenhab.py', dest: '{{destdir}}/', mode: '644', backup: yes }
     - {src: '{{srcdir}}/getOctopusData.sh', dest: '{{destdir}}/', mode: '754', backup: yes }
     - {src: '{{srcdir}}/miscUpdaters.py', dest: '{{destdir}}/', mode: '644', backup: yes }
     - {src: '{{srcdir}}/miscUpdates.sh', dest: '{{destdir}}/', mode: '754', backup: yes }
     - {src: '{{srcdir}}/requirements.txt', dest: '{{destdir}}/', mode: '754', backup: yes }
     - {src: '~/.ssh/influxdb', dest: '~/.ssh/', mode: '600', backup: yes }
     - {src: '~/.ssh/octopus_apikey', dest: '~/.ssh/', mode: '600', backup: yes }
+    - {src: '~/.ssh/ohpass', dest: '~/.ssh/', mode: '600', backup: yes }
   - name: set datadir
     replace: 
       path: '{{destdir}}/loadconfig.py'

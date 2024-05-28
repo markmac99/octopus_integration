@@ -66,11 +66,14 @@ def updateElecMeter(sd=None):
             usage = 0
         vals = client.query(f"select * from HouseElectricityMeterReading where time >= '{ts1}' and time < '{ts2}'")
         if vals:
-            currentmeter = vals.raw['series'][-1]['values'][0][1]
-        currentmeter += usage
+            currvals = vals.raw['series'][-1]
+            validx = currvals['columns'].index('value')
+            currentmeter = currvals['values'][0][validx]
+            currentmeter += usage
         #print(f'updating elemeter for {ts1} with {currentmeter}')
-        jsbody = [{"measurement": "HouseElectricityMeterReading","time": f"{ts2}","fields": {"value": round(currentmeter,1)}}]
-        client.write_points(jsbody)
+        if currentmeter > 0:
+            jsbody = [{"measurement": "HouseElectricityMeterReading","time": f"{ts2}","fields": {"value": round(currentmeter,1)}}]
+            client.write_points(jsbody)
         sd = ed
     print(f'updated electricity meter to {currentmeter} as of {ed}')
     updateMeterReading(currentmeter, ed, True)

@@ -10,6 +10,7 @@ import requests
 from requests.auth import HTTPBasicAuth 
 import datetime
 import pandas as pd
+import logging
 
 from loadconfig import getApiKey, getAccountId, getDataDir
 from influxconfig import getInfluxUrl, getMeasurementName
@@ -21,6 +22,8 @@ GAS_URL = 'https://api.octopus.energy/v1/gas-meter-points'
 CAL_VAL = 39.2
 VOL_CORR = 1.02264
 JOULE_CORR = 3.6
+
+log = logging.getLogger('octopus')
 
 
 def getOctopusMeters():
@@ -35,7 +38,7 @@ def getOctopusMeters():
         gsns = [x['serial_number'] for x in data['properties'][0]['gas_meter_points'][0]['meters']]
         return mpan, esns, mprn, gsns 
     except Exception:
-        print('failed to get meter ids')
+        log.error('failed to get meter ids')
         return False, 0, 0, 0
     
 
@@ -44,7 +47,6 @@ def saveAsCsv(thisdf, typ, outdir):
     yr = datetime.datetime.utcnow().year
     thisdf.set_index('timestamp', inplace=True)
     thisdf.drop(columns=['interval_start','interval_end'], inplace=True)
-    #print(df)
     # load existing data, if any
     dataf = os.path.join(outdir, f'{typ}-{yr}.csv')
     if os.path.isfile(dataf):
@@ -57,7 +59,7 @@ def saveAsCsv(thisdf, typ, outdir):
         thisdf = thisdf[~thisdf.index.duplicated(keep='first')]
     thisdf.sort_index(inplace=True)
     thisdf.to_csv(dataf)
-    print(f' saved {typ} - latest value is { thisdf.iloc[-1].consumption} at {thisdf.iloc[-1].name}')
+    log.info(f' saved {typ} - latest value is { thisdf.iloc[-1].consumption} at {thisdf.iloc[-1].name}')
     return
 
 
@@ -68,7 +70,7 @@ def getOneDataset(meterid, serialno, elecdata=True, daysback=7):
     while True: 
         p1 = (datetime.datetime.utcnow() + datetime.timedelta(days=-db1)).strftime('%Y-%m-%dT%H:%M:%SZ')
         p2 = (datetime.datetime.utcnow() + datetime.timedelta(days=-db2)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        print(f'get data for {p1} to {p2}')
+        log.info(f'get data for {p1} to {p2}')
         if elecdata:
             urlroot = ELEC_URL
         else:
@@ -82,9 +84,9 @@ def getOneDataset(meterid, serialno, elecdata=True, daysback=7):
                 if data['count'] > 0:
                     tmpdatadf = pd.DataFrame(data['results'])
                     tmpdatadf['timestamp'] = [datetime.datetime.strptime(x, '%Y-%m-%dT%H:%M:%S%z') for x in tmpdatadf.interval_end]
-                    print(f'got data for {serialno}')
+                    log.info(f'got data for {serialno}')
         except Exception:
-            print(f'unable to get data from {urlroot}')
+            log.error(f'unable to get data from {urlroot}')
         if daysback < 21:
             return tmpdatadf
         else:
@@ -140,8 +142,16 @@ def updateInfluxDB(df, typ, outdir):
 
 
 if __name__ == '__main__': 
-    print(f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")} Starting data capture')
+    logpath = os.path.expanduser('~/logs')
+    logname=os.path.join(logpath, 'octopus.log')
+    log.setLevel(logging.INFO)
+    fh = logging.FileHandler(logname, 'a+')
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(logging.Formatter('%(asctime)s | %(levelname)s | %(message)s'))
+    log.addHandler(fh)
+
+    log.info('Starting data capture')
     mpan, esns, mprn, gsns = getOctopusMeters()
     if mpan:
         getDataFromOctopus(mpan, esns, mprn, gsns)
-    print(f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")} Done')
+    log.info('Finished')

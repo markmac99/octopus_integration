@@ -3,11 +3,15 @@
 # some functions to update various values in my Openhab InfluxDB
 
 import datetime
+import os
 from influxconfig import getInfluxUrl
 from influxdb import InfluxDBClient
 from updateOpenhab import updateMeterReading
+import logging
 
 from influxconfig import getMeasurementName
+
+log = logging.getLogger('octopus_misc')
 
 
 def updateDailyHouseElectricity(sd):
@@ -22,13 +26,13 @@ def updateDailyHouseElectricity(sd):
     vals = client.query(f"Select sum(value) from {meas} where time >= '{ts1}' and time < '{ts2}'")
     if vals:
         usage = vals.raw['series'][0]['values'][0][1]/1000
-        print(f'updating electicity for {ts1} with {usage}')
+        log.info(f'updating electicity for {ts1} with {usage}')
         for i in range(0,48):
             tsmeas = (sd + datetime.timedelta(minutes = i*30)).strftime('%Y-%m-%dT%H:%M:00Z')
             jsbody = [{"measurement": "DailyHouseEnergy","time": f"{tsmeas}","fields": {"value": usage}}]
             client.write_points(jsbody)
     else:
-        print(f'No electicity data for {ts1}')
+        log.info(f'No electicity data for {ts1}')
 
 
 def updateDailyHouseGas(sd):
@@ -43,13 +47,13 @@ def updateDailyHouseGas(sd):
     vals = client.query(f"Select sum(value) from {meas} where time >= '{ts1}' and time < '{ts2}'")
     if vals:
         usage = vals.raw['series'][0]['values'][0][1]/1000
-        print(f'updating gas for {ts1} with {usage}')
+        log.info(f'updating gas for {ts1} with {usage}')
         for i in range(0,48):
             tsmeas = (sd + datetime.timedelta(minutes = i*30)).strftime('%Y-%m-%dT%H:%M:00Z')
             jsbody = [{"measurement": "DailyHouseGas","time": f"{tsmeas}","fields": {"value": usage}}]
             client.write_points(jsbody)
     else:
-        print(f'No gas data for {ts1}')
+        log.info(f'No gas data for {ts1}')
 
 
 def updateElecMeter(sd=None):
@@ -74,16 +78,25 @@ def updateElecMeter(sd=None):
             validx = currvals['columns'].index('value')
             currentmeter = currvals['values'][0][validx]
             currentmeter += usage
-        #print(f'updating elemeter for {ts1} with {currentmeter}')
+        #log.info(f'updating elemeter for {ts1} with {currentmeter}')
         if currentmeter > 0:
             jsbody = [{"measurement": "HouseElectricityMeterReading","time": f"{ts2}","fields": {"value": round(currentmeter,1)}}]
             client.write_points(jsbody)
         sd = ed
-    print(f'updated electricity meter to {currentmeter} as of {ed}')
+    log.info(f'updated electricity meter to {currentmeter} as of {ed}')
     updateMeterReading(currentmeter, ed, True)
 
 
 if __name__ == '__main__': 
+    logpath = os.path.expanduser('~/logs')
+    logname=os.path.join(logpath, 'octopus_misc.log')
+    log.setLevel(logging.INFO)
+    fh = logging.FileHandler(logname, 'a+')
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(logging.Formatter('%(asctime)s | %(levelname)s | %(message)s'))
+    log.addHandler(fh)
+
+    log.info('Starting')
     updateDailyHouseElectricity(datetime.datetime.now())
     updateDailyHouseElectricity(datetime.datetime.now() + datetime.timedelta(days=-1))
     updateDailyHouseElectricity(datetime.datetime.now() + datetime.timedelta(days=-2))
@@ -93,3 +106,4 @@ if __name__ == '__main__':
     updateDailyHouseGas(datetime.datetime.now() + datetime.timedelta(days=-2))
 
     #updateElecMeter()
+    log.info('Finished')

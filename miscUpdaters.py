@@ -7,8 +7,11 @@ from influxconfig import getInfluxUrl
 from influxdb import InfluxDBClient
 from updateOpenhab import updateMeterReading
 
+from influxconfig import getMeasurementName
+
 
 def updateDailyHouseElectricity(sd):
+    meas = getMeasurementName('electricity')
     _, usr, pwd, infhost, infport, ohdb = getInfluxUrl()
     client = InfluxDBClient(host=infhost, port=infport, username=usr, password=pwd, database=ohdb)
 
@@ -16,7 +19,7 @@ def updateDailyHouseElectricity(sd):
     sd = datetime.datetime.strptime(ts1,'%Y-%m-%dT00:00:00Z')
     ed = sd + datetime.timedelta(days=1)
     ts2 = ed.strftime('%Y-%m-%dT00:00:00Z')
-    vals = client.query(f"Select sum(value) from HouseElectricityPower where time > '{ts1}' and time < '{ts2}'")
+    vals = client.query(f"Select sum(value) from {meas} where time >= '{ts1}' and time < '{ts2}'")
     if vals:
         usage = vals.raw['series'][0]['values'][0][1]/1000
         print(f'updating electicity for {ts1} with {usage}')
@@ -29,6 +32,7 @@ def updateDailyHouseElectricity(sd):
 
 
 def updateDailyHouseGas(sd):
+    meas = getMeasurementName('gas')
     _, usr, pwd, infhost, infport, ohdb = getInfluxUrl()
     client = InfluxDBClient(host=infhost, port=infport, username=usr, password=pwd, database=ohdb)
 
@@ -36,7 +40,7 @@ def updateDailyHouseGas(sd):
     sd = datetime.datetime.strptime(ts1,'%Y-%m-%dT00:00:00Z')
     ed = sd + datetime.timedelta(days=1)
     ts2 = ed.strftime('%Y-%m-%dT00:00:00Z')
-    vals = client.query(f"Select sum(value) from HouseGasPower where time > '{ts1}' and time < '{ts2}'")
+    vals = client.query(f"Select sum(value) from {meas} where time >= '{ts1}' and time < '{ts2}'")
     if vals:
         usage = vals.raw['series'][0]['values'][0][1]/1000
         print(f'updating gas for {ts1} with {usage}')
@@ -88,4 +92,4 @@ if __name__ == '__main__':
     updateDailyHouseGas(datetime.datetime.now() + datetime.timedelta(days=-1))
     updateDailyHouseGas(datetime.datetime.now() + datetime.timedelta(days=-2))
 
-    updateElecMeter()
+    #updateElecMeter()

@@ -19,8 +19,8 @@ def getInfluxUrl():
 
 def getMeasurementName(typ):
     if typ == 'electricity':
-        return 'HouseElectricityPower'
+        return 'OctopusElect30m'
     elif typ == 'gas':
-        return 'HouseGasPower'
+        return 'OctopusGas30m'
     else:
         return None

@@ -61,25 +61,42 @@ def saveAsCsv(thisdf, typ, outdir):
     return
 
 
-def getOneDataset(meterid, serialno, elecdata=True, daysback=14):
-    p2 = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
-    p1 = (datetime.datetime.utcnow() + datetime.timedelta(days=-daysback)).strftime('%Y-%m-%dT%H:%M:%SZ')
+def getOneDataset(meterid, serialno, elecdata=True, daysback=7):
+    db1 = min(20, daysback)
+    db2 = 0
     datadf = None
-    if elecdata:
-        urlroot = ELEC_URL
-    else:
-        urlroot = GAS_URL
-    url = f'{urlroot}/{meterid}/meters/{serialno}/consumption/?page_size=1000&period_from={p1}&period_to={p2}&order_by=period'
-    try:
-        r = requests.get(url, auth=(getApiKey(),''))
-        data = r.json()
-        if 'count' in data:
-            if data['count'] > 0:
-                datadf = pd.DataFrame(data['results'])
-                datadf['timestamp'] = [datetime.datetime.strptime(x, '%Y-%m-%dT%H:%M:%S%z') for x in datadf.interval_end]
-                print(f'got data for {serialno}')
-    except Exception:
-        print(f'unable to get data from {urlroot}')
+    while True: 
+        p1 = (datetime.datetime.utcnow() + datetime.timedelta(days=-db1)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        p2 = (datetime.datetime.utcnow() + datetime.timedelta(days=-db2)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        print(f'get data for {p1} to {p2}')
+        if elecdata:
+            urlroot = ELEC_URL
+        else:
+            urlroot = GAS_URL
+        url = f'{urlroot}/{meterid}/meters/{serialno}/consumption/?page_size=1000&period_from={p1}&period_to={p2}&order_by=period'
+        tmpdatadf = None
+        try:
+            r = requests.get(url, auth=(getApiKey(),''))
+            data = r.json()
+            if 'count' in data:
+                if data['count'] > 0:
+                    tmpdatadf = pd.DataFrame(data['results'])
+                    tmpdatadf['timestamp'] = [datetime.datetime.strptime(x, '%Y-%m-%dT%H:%M:%S%z') for x in tmpdatadf.interval_end]
+                    print(f'got data for {serialno}')
+        except Exception:
+            print(f'unable to get data from {urlroot}')
+        if daysback < 21:
+            return tmpdatadf
+        else:
+            if tmpdatadf is not None:
+                if datadf is not None:
+                    datadf = pd.concat([datadf, tmpdatadf])
+                else:
+                    datadf = tmpdatadf
+        db2=db1
+        db1 = min(db1 + 20, daysback)
+        if db2 == db1:
+            break
     return datadf
 
 
@@ -123,6 +140,8 @@ def updateInfluxDB(df, typ, outdir):
 
 
 if __name__ == '__main__': 
+    print(f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")} Starting data capture')
     mpan, esns, mprn, gsns = getOctopusMeters()
     if mpan:
         getDataFromOctopus(mpan, esns, mprn, gsns)
+    print(f'{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")} Done')

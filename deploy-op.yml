@@ -1,13 +1,9 @@
 - hosts: ohserver
   vars:
-    srcdir: /mnt/e/dev/energy/octopus_integration
+    srcdir: "/mnt/c/Users/{{ lookup('env','USER' )}}/OneDrive/dev/octopus_integration"
   tasks:
   - name: import variables 
     include_vars: local-vars.yml
-  - name: Ensures logdir exists
-    file: path=~/logs state=directory  
-  - name: Ensures datadir exists
-    file: path={{datadir}} state=directory  
   - name: Copy files
     copy: src={{ item.src }} dest={{ item.dest }} mode={{ item.mode }}
     with_items:
@@ -27,8 +23,8 @@
       path: '{{destdir}}/loadconfig.py'
       regexp: 'DATADIRSUBST'
       replace: '{{ datadir }}'
-  - name: Check requirements
-    shell: . ~/.bashrc && conda activate openhabstuff && pip install -r {{destdir}}/requirements.txt
-    args:
-      executable: /bin/bash
+#  - name: Check requirements
+#    shell: . ~/.bashrc && conda activate openhabstuff && pip install -r {{destdir}}/requirements.txt
+#    args:
+#      executable: /bin/bash
     

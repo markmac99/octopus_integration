@@ -11,6 +11,7 @@ from requests.auth import HTTPBasicAuth
 import datetime
 import pandas as pd
 import logging
+from time import sleep
 
 from loadconfig import getApiKey, getAccountId, getDataDir
 from influxconfig import getInfluxUrl, getMeasurementName
@@ -142,8 +143,10 @@ def updateInfluxDB(df, typ, outdir):
 
 
 if __name__ == '__main__': 
+    os.makedirs(getDataDir(), exist_ok=True)
     logpath = os.path.expanduser('~/logs')
-    logname=os.path.join(logpath, 'octopus.log')
+    os.makedirs(logpath, exist_ok=True)
+    logname=os.path.join(logpath, 'octopus.log')    
     log.setLevel(logging.INFO)
     fh = logging.FileHandler(logname, 'a+')
     fh.setLevel(logging.DEBUG)
@@ -151,7 +154,17 @@ if __name__ == '__main__':
     log.addHandler(fh)
 
     log.info('Starting data capture')
+    local_path =os.path.dirname(os.path.abspath(__file__))
+    inprogressflag = os.path.join(local_path, 'inprogress')
+    while os.path.isfile(inprogressflag):
+        log.info('another run in progress, waiting 60s')
+        sleep(60)
+    open(inprogressflag).write('1\n')
+
     mpan, esns, mprn, gsns = getOctopusMeters()
+
     if mpan:
         getDataFromOctopus(mpan, esns, mprn, gsns)
+
     log.info('Finished')
+    os.remove(inprogressflag)

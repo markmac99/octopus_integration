@@ -159,7 +159,7 @@ if __name__ == '__main__':
     while os.path.isfile(inprogressflag):
         log.info('another run in progress, waiting 60s')
         sleep(60)
-    open(inprogressflag).write('1\n')
+    open(inprogressflag, 'w').write('1\n')
 
     mpan, esns, mprn, gsns = getOctopusMeters()
 

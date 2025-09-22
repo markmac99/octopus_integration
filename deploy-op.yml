@@ -1,4 +1,6 @@
 - hosts: ohserver
+  vars_files: 
+    - /mnt/c/Users/{{ lookup('env','USER' )}}/apikeys/mqvariables.enc
   vars:
     srcdir: "/mnt/c/Users/{{ lookup('env','USER' )}}/OneDrive/dev/octopus_integration"
   tasks:
@@ -7,6 +9,8 @@
   - name: Copy files
     copy: src={{ item.src }} dest={{ item.dest }} mode={{ item.mode }}
     with_items:
+    - {src: '{{srcdir}}/getSolardata.py', dest: '{{destdir}}/', mode: '644', backup: yes }
+    - {src: '{{srcdir}}/getSolarData.sh', dest: '{{destdir}}/', mode: '754', backup: yes }
     - {src: '{{srcdir}}/influxconfig.py', dest: '{{destdir}}/', mode: '644', backup: yes }
     - {src: '{{srcdir}}/loadconfig.py', dest: '{{destdir}}/', mode: '644', backup: yes }
     - {src: '{{srcdir}}/octopus.py', dest: '{{destdir}}/', mode: '644', backup: yes }
@@ -19,10 +23,16 @@
     - {src: '~/.ssh/octopus_apikey', dest: '~/.ssh/', mode: '600', backup: yes }
     - {src: '~/.ssh/ohpass', dest: '~/.ssh/', mode: '600', backup: yes }
   - name: set datadir
-    replace: 
+    ansible.builtin.replace:
       path: '{{destdir}}/loadconfig.py'
       regexp: 'DATADIRSUBST'
       replace: '{{ datadir }}'
+  - name: update forecast.solar API key
+    ansible.builtin.replace:
+      path: '{{destdir}}/loadconfig.py'
+      regexp: 'CHANGEME'
+      replace: '{{ fcsolarapikey }}'
+
 #  - name: Check requirements
 #    shell: . ~/.bashrc && conda activate openhabstuff && pip install -r {{destdir}}/requirements.txt
 #    args:

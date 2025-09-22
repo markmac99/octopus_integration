@@ -9,3 +9,9 @@ This code does the following
 
 * Calculates the daily consumption and posts that to InfluxDB tables
 
+# Solar forecast
+
+Pull a solar energy forecast from forecast.solar using their API
+
+All the above run as cron jobs. 
+

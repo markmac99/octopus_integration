@@ -45,7 +45,7 @@ def getOctopusMeters():
 
 def saveAsCsv(thisdf, typ, outdir):
     # convert data to time-indexed dataframe
-    yr = datetime.datetime.utcnow().year
+    yr = datetime.datetime.now(datetime.timezone.utc).year
     thisdf.set_index('timestamp', inplace=True)
     thisdf.drop(columns=['interval_start','interval_end'], inplace=True)
     # load existing data, if any
@@ -69,8 +69,8 @@ def getOneDataset(meterid, serialno, elecdata=True, daysback=7):
     db2 = 0
     datadf = None
     while True: 
-        p1 = (datetime.datetime.utcnow() + datetime.timedelta(days=-db1)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        p2 = (datetime.datetime.utcnow() + datetime.timedelta(days=-db2)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        p1 = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=-db1)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        p2 = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=-db2)).strftime('%Y-%m-%dT%H:%M:%SZ')
         log.info(f'get data for {p1} to {p2}')
         if elecdata:
             urlroot = ELEC_URL
@@ -107,13 +107,19 @@ def getDataFromOctopus(mpan, esns, mprn, gsns):
     for esn in esns:
         datadf = getOneDataset(mpan, esn, True)
         if datadf is not None: 
-            saveAsCsv(datadf.copy(True), 'electricity', getDataDir())
-            updateInfluxDB(datadf.copy(True), 'electricity', getDataDir())
+            try:
+                saveAsCsv(datadf.copy(True), 'electricity', getDataDir())
+                updateInfluxDB(datadf.copy(True), 'electricity', getDataDir())
+            except Exception as e:
+                print(e)
     for gsn in gsns:
         datadf = getOneDataset(mprn, gsn, False)
         if datadf is not None: 
-            saveAsCsv(datadf.copy(True), 'gas', getDataDir())
-            updateInfluxDB(datadf.copy(True), 'gas', getDataDir())
+            try:
+                saveAsCsv(datadf.copy(True), 'gas', getDataDir())
+                updateInfluxDB(datadf.copy(True), 'gas', getDataDir())
+            except Exception as e:
+                print(e)
     return 
 
 
@@ -161,10 +167,12 @@ if __name__ == '__main__':
         sleep(60)
     open(inprogressflag, 'w').write('1\n')
 
-    mpan, esns, mprn, gsns = getOctopusMeters()
+    try:
+        mpan, esns, mprn, gsns = getOctopusMeters()
+        if mpan:
+            getDataFromOctopus(mpan, esns, mprn, gsns)
 
-    if mpan:
-        getDataFromOctopus(mpan, esns, mprn, gsns)
-
-    log.info('Finished')
+        log.info('Finished')
+    except Exception:
+        log.info('Failed to get data from octopus')
     os.remove(inprogressflag)

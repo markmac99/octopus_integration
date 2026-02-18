@@ -2,13 +2,14 @@
   vars_files: 
     - /mnt/c/Users/{{ lookup('env','USER' )}}/apikeys/mqvariables.enc
   vars:
-    srcdir: "/mnt/c/Users/{{ lookup('env','USER' )}}/OneDrive/dev/octopus_integration"
+    srcdir: "/mnt/c/Users/{{ lookup('env','USER' )}}/OneDrive/dev/tackley/octopus_integration"
   tasks:
   - name: import variables 
     include_vars: local-vars.yml
   - name: Copy files
     copy: src={{ item.src }} dest={{ item.dest }} mode={{ item.mode }}
     with_items:
+    - {src: '{{srcdir}}/updateCosts.sh', dest: '{{destdir}}/', mode: '754', backup: yes }
     - {src: '{{srcdir}}/getSolardata.py', dest: '{{destdir}}/', mode: '644', backup: yes }
     - {src: '{{srcdir}}/getSolarData.sh', dest: '{{destdir}}/', mode: '754', backup: yes }
     - {src: '{{srcdir}}/influxconfig.py', dest: '{{destdir}}/', mode: '644', backup: yes }

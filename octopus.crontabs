@@ -1,0 +1,6 @@
+HOME=/home/ohuser
+# m h  dom mon dow   command
+*/30 * * * * $HOME/src/octopus/getOctopusData.sh >> $HOME/logs/octopus.log 2>&1
+*/15 * * * * $HOME/src/octopus/getSolarData.sh >> $HOME/logs/forecast-solar.log 2>&1
+5 * * * * $HOME/src/octopus/miscUpdates.sh >> $HOME/logs/miscupdates.log 2>&1
+*/15 * * * * $HOME/src/octopus/updateCosts.sh >> $HOME/logs/updateCosts.log 2>&1

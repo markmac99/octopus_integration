@@ -4,7 +4,7 @@ Script to integrate octopus data with Openhab
 The API does not provide realtime data so we can't push directly to openhab. Instead we need to push to InfluxDB
 using the timestamps of the data, and hope that OH understands whats going on. 
 
-Imporant Note: octopus energy data is often delayed by hours or days, especially gas. 
+Important Note: octopus energy data is often delayed by hours or days, especially gas. 
 
 """
 import os
@@ -139,7 +139,7 @@ def getOneDataset(meterid, serialno, elecdata=True, daysback=7):
     return datadf
 
 
-def getPrice(dt, meastype='electricity', daysback=7):
+def getPrice(dt, meastype='electricity', daysback=7, amt=None):
     """
     getPrice retrieves the current price for a unit of electricity or gas
     
@@ -147,13 +147,15 @@ def getPrice(dt, meastype='electricity', daysback=7):
     :param meastype: 'electricity' or 'gas'
     :param daysback: number of days price data to request - default 7
     """
+    if amt and amt < 0:
+        return 15.0
     if os.path.isfile(f'{meastype}_tariffs.json'):
         data = json.loads(open(f'{meastype}_tariffs.json', 'r').read())
         if meastype == 'gas':
             prices = [float(d['value_inc_vat']) for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
             return prices[0]
-        to_dts = [datetime.datetime.strptime(d['valid_to'], '%Y-%m-%dT%H:%M:%SZ') for d in data['results']]
-        fr_dts = [datetime.datetime.strptime(d['valid_from'], '%Y-%m-%dT%H:%M:%SZ') for d in data['results']]
+        to_dts = [datetime.datetime.strptime(d['valid_to'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in data['results']]
+        fr_dts = [datetime.datetime.strptime(d['valid_from'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in data['results']]
         prices = [float(d['value_inc_vat']) for d in data['results']]
         min_fr = min(fr_dts)
         if dt < min_fr:

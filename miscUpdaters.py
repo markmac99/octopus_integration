@@ -4,6 +4,7 @@
 
 import datetime
 import os
+import pandas as pd
 from influxconfig import getInfluxUrl
 from influxdb import InfluxDBClient
 from updateOpenhab import updateMeterReading
@@ -11,7 +12,61 @@ import logging
 
 from influxconfig import getMeasurementName
 
+from octopus import getPrice
+
 log = logging.getLogger('octopus_misc')
+
+
+def updateRecentElectricityCost(ed=None, lookback=90):
+    _, usr, pwd, infhost, infport, ohdb = getInfluxUrl()
+    client = InfluxDBClient(host=infhost, port=infport, username=usr, password=pwd, database=ohdb)
+    if not ed:
+        ed = datetime.datetime.now().replace(tzinfo=datetime.timezone.utc)
+    sd = ed - datetime.timedelta(minutes=lookback)
+    ts1 = sd.strftime('%Y-%m-%dT%H:00:00Z')
+    ts2 = ed.strftime('%Y-%m-%dT%H:%M:%SZ')
+    vals = client.query(f"Select value from HouseElectricityPower where time >= '{ts1}' and time < '{ts2}'")
+    df = pd.DataFrame(vals['HouseElectricityPower'])
+    df['prev_time'] = df.time.shift(1)
+    df['time'] = pd.to_datetime(df['time'], format='mixed')
+    df['prev_time'] = pd.to_datetime(df['prev_time'], format='mixed')
+    df.dropna(inplace=True)
+    df['cost'] = [(e-s).seconds*getPrice(e, amt=v)/360000*v/1000 for e,s,v in zip(df.time,df.prev_time, df.value)]
+
+    for _,rw in df.iterrows():
+        tsmeas = rw.time.strftime('%Y-%m-%dT%H:%M:00Z')
+        jsbody = [{"measurement": "ElectricityCost","time": f"{tsmeas}","fields": {"value": rw.cost}}]
+        client.write_points(jsbody)
+
+    df2 = df.drop(columns=['value', 'prev_time'])
+    df2.set_index('time', inplace=True)
+    halfhourly = df2.resample("30min").sum()
+    halfhourly.reset_index(inplace=True)
+    
+    for _,rw in halfhourly.iterrows():
+        tsmeas = rw.time.strftime('%Y-%m-%dT%H:%M:00Z')
+        jsbody = [{"measurement": "ElectricityCost30m","time": f"{tsmeas}","fields": {"value": rw.cost}}]
+        client.write_points(jsbody)
+
+    updateDailyTotalElecCost(client, ed)
+
+    return 
+
+
+def updateDailyTotalElecCost(client, ed):
+    sd = ed - datetime.timedelta(days=7)
+    ts1 = sd.strftime('%Y-%m-%dT00:00:00Z')
+    ts2 = ed.strftime('%Y-%m-%dT%H:%M:%SZ')
+    vals = client.query(f"Select value from ElectricityCost30m where time >= '{ts1}' and time <= '{ts2}'")
+    df = pd.DataFrame(vals['ElectricityCost30m'])
+    df.set_index('time', inplace=True)
+    df.index = pd.to_datetime(df.index)
+    daily = df.resample("1d").sum()
+    daily.reset_index(inplace=True)
+    for _,rw in daily.iterrows():
+        tsmeas = rw.time.strftime('%Y-%m-%dT%H:%M:00Z')
+        jsbody = [{"measurement": "ElectricityCostDay","time": f"{tsmeas}","fields": {"value": rw.value}}]
+        client.write_points(jsbody)
 
 
 def updateDailyHouseElectricity(sd):

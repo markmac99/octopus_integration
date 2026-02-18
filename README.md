@@ -9,6 +9,8 @@ This code does the following
 
 * Calculates the daily consumption and posts that to InfluxDB tables
 
+* Work out effective cost per hour and per day
+
 # Solar forecast
 
 Pull a solar energy forecast from forecast.solar using their API

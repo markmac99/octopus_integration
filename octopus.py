@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Script to intergrate octopus data the Openhab
+Script to integrate octopus data with Openhab
 The API does not provide realtime data so we can't push directly to openhab. Instead we need to push to InfluxDB
 using the timestamps of the data, and hope that OH understands whats going on. 
+
+Imporant Note: octopus energy data is often delayed by hours or days, especially gas. 
 
 """
 import os
@@ -12,10 +14,12 @@ import datetime
 import pandas as pd
 import logging
 from time import sleep
+import json
 
 from loadconfig import getApiKey, getAccountId, getDataDir
 from influxconfig import getInfluxUrl, getMeasurementName
 
+PRODUCTS_URL = 'https://api.octopus.energy/v1/products'
 ACCTDETS_URL = 'https://api.octopus.energy/v1/accounts'
 ELEC_URL = 'https://api.octopus.energy/v1/electricity-meter-points'
 GAS_URL = 'https://api.octopus.energy/v1/gas-meter-points'
@@ -41,7 +45,39 @@ def getOctopusMeters():
     except Exception:
         log.error('failed to get meter ids')
         return False, 0, 0, 0
-    
+
+
+def getOctopusTariffs():
+    url = f'{ACCTDETS_URL}/{getAccountId()}/'
+    currdt = datetime.datetime.now()
+    try:
+        r = requests.get(url, auth=(getApiKey(),''))
+        data = r.json()
+        agrs = data['properties'][0]['electricity_meter_points'][0]['agreements']
+        for agr in agrs:
+            fromdt = datetime.datetime.strptime(agr['valid_from'][:19], '%Y-%m-%dT%H:%M:%S')
+            if fromdt <= currdt and agr['valid_to'] is None:
+                elec_tariff = agr['tariff_code']
+                break
+            todt = datetime.datetime.strptime(agr['valid_to'][:19], '%Y-%m-%dT%H:%M:%S')
+            if fromdt <= currdt and todt >= currdt:
+                elec_tariff = agr['tariff_code']
+                break
+        agrs = data['properties'][0]['gas_meter_points'][0]['agreements']
+        for agr in agrs:
+            fromdt = datetime.datetime.strptime(agr['valid_from'][:19], '%Y-%m-%dT%H:%M:%S')
+            if fromdt <= currdt and agr['valid_to'] is None:
+                gas_tariff = agr['tariff_code']
+                break
+            todt = datetime.datetime.strptime(agr['valid_to'][:19], '%Y-%m-%dT%H:%M:%S')
+            if fromdt <= currdt and todt >= currdt:
+                gas_tariff = agr['tariff_code']
+                break
+        return elec_tariff, gas_tariff
+    except Exception:
+        log.error('failed to get meter data')
+        return None, None
+
 
 def saveAsCsv(thisdf, typ, outdir):
     # convert data to time-indexed dataframe
@@ -101,6 +137,59 @@ def getOneDataset(meterid, serialno, elecdata=True, daysback=7):
         if db2 == db1:
             break
     return datadf
+
+
+def getPrice(dt, meastype='electricity', daysback=7):
+    """
+    getPrice retrieves the current price for a unit of electricity or gas
+    
+    :param dt: datetime to request price for
+    :param meastype: 'electricity' or 'gas'
+    :param daysback: number of days price data to request - default 7
+    """
+    if os.path.isfile(f'{meastype}_tariffs.json'):
+        data = json.loads(open(f'{meastype}_tariffs.json', 'r').read())
+        if meastype == 'gas':
+            prices = [float(d['value_inc_vat']) for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
+            return prices[0]
+        to_dts = [datetime.datetime.strptime(d['valid_to'], '%Y-%m-%dT%H:%M:%SZ') for d in data['results']]
+        fr_dts = [datetime.datetime.strptime(d['valid_from'], '%Y-%m-%dT%H:%M:%SZ') for d in data['results']]
+        prices = [float(d['value_inc_vat']) for d in data['results']]
+        min_fr = min(fr_dts)
+        if dt < min_fr:
+            return prices[fr_dts.index(min_fr)]
+        for f,t,p in zip(fr_dts,to_dts,prices):
+            if f <= dt and t > dt:
+                return p
+
+    # if the file doesn't exist or if the daterange isn't in it, then call the api
+    etariff, gtariff = getOctopusTariffs()
+    tariff = etariff if meastype == 'electricity' else gtariff
+    base_tariff = tariff[5:-2]
+    fromdt = (datetime.datetime.now() - datetime.timedelta(days=daysback)).replace(hour=0, minute=0, microsecond=0)
+    todt = fromdt + datetime.timedelta(days=daysback+2)
+    url = f'{PRODUCTS_URL}/{base_tariff}/{meastype}-tariffs/{tariff}/' \
+        f'standard-unit-rates/?period_from={fromdt.strftime("%Y-%m-%dT%H:%M:%SZ")}&period_to={todt.strftime("%Y-%m-%dT%H:%M:%SZ")}'
+    try:
+        r = requests.get(url)
+        data = r.json()
+        open(f'{meastype}_tariffs.json', 'w').write(json.dumps(data))
+        if meastype == 'gas':
+            prices = [float(d['value_inc_vat']) for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
+            return prices[0]
+        to_dts = [datetime.datetime.strptime(d['valid_to'], '%Y-%m-%dT%H:%M:%SZ') for d in data['results']]
+        fr_dts = [datetime.datetime.strptime(d['valid_from'], '%Y-%m-%dT%H:%M:%SZ') for d in data['results']]
+        prices = [float(d['value_inc_vat']) for d in data['results']]
+        min_fr = min(fr_dts)
+        if dt < min_fr:
+            return prices[fr_dts.index(min_fr)]
+        for f,t,p in zip(fr_dts,to_dts,prices):
+            if f <= dt and t > dt:
+                return p
+
+    except Exception:
+        print('unable to connect to API')
+    return 0
 
 
 def getDataFromOctopus(mpan, esns, mprn, gsns):

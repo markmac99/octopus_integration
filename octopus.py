@@ -51,7 +51,11 @@ def getOctopusTariffs():
     url = f'{ACCTDETS_URL}/{getAccountId()}/'
     currdt = datetime.datetime.now()
     try:
+        print(url)
         r = requests.get(url, auth=(getApiKey(),''))
+        if r.status_code != 200:
+            print('unable to get data at this time, assuming tariffs')
+            return 'E-1R-GO-VAR-26-02-11-H', 'E-1R-VAR-22-11-01-H'
         data = r.json()
         agrs = data['properties'][0]['electricity_meter_points'][0]['agreements']
         for agr in agrs:
@@ -74,8 +78,9 @@ def getOctopusTariffs():
                 gas_tariff = agr['tariff_code']
                 break
         return elec_tariff, gas_tariff
-    except Exception:
-        log.error('failed to get meter data')
+    except Exception as e:
+        log.error('failed to get meter or tariff data')
+        log.error(e)
         return None, None
 
 
@@ -165,6 +170,7 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
                 return p
 
     # if the file doesn't exist or if the daterange isn't in it, then call the api
+    print('no current tariff data, retrieving latest')
     etariff, gtariff = getOctopusTariffs()
     tariff = etariff if meastype == 'electricity' else gtariff
     base_tariff = tariff[5:-2]

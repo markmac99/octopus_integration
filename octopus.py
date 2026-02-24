@@ -57,7 +57,10 @@ def getOctopusTariffs():
             print('unable to get data at this time, assuming tariffs')
             return 'E-1R-GO-VAR-26-02-11-H', 'E-1R-VAR-22-11-01-H'
         data = r.json()
-        agrs = data['properties'][0]['electricity_meter_points'][0]['agreements']
+        for mps in data['properties'][0]['electricity_meter_points']:
+            agrs = mps['agreements']
+            if len(agrs) != 0:
+                break
         for agr in agrs:
             fromdt = datetime.datetime.strptime(agr['valid_from'][:19], '%Y-%m-%dT%H:%M:%S')
             if fromdt <= currdt and agr['valid_to'] is None:
@@ -81,7 +84,7 @@ def getOctopusTariffs():
     except Exception as e:
         log.error('failed to get meter or tariff data')
         log.error(e)
-        return None, None
+        return 'E-1R-GO-VAR-26-02-11-H', 'E-1R-VAR-22-11-01-H'
 
 
 def saveAsCsv(thisdf, typ, outdir):

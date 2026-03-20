@@ -17,6 +17,58 @@ from octopus import getPrice
 log = logging.getLogger('octopus_misc')
 
 
+def updateRecentGasCost(ed=None, lookback=90):
+    _, usr, pwd, infhost, infport, ohdb = getInfluxUrl()
+    client = InfluxDBClient(host=infhost, port=infport, username=usr, password=pwd, database=ohdb)
+    if not ed:
+        ed = datetime.datetime.now().replace(tzinfo=datetime.timezone.utc)
+    sd = ed - datetime.timedelta(minutes=lookback)
+    ts1 = sd.strftime('%Y-%m-%dT%H:00:00Z')
+    ts2 = ed.strftime('%Y-%m-%dT%H:%M:%SZ')
+    vals = client.query(f"Select value from HouseGasPower where time >= '{ts1}' and time < '{ts2}'")
+    df = pd.DataFrame(vals['HouseGasPower'])
+    df['prev_time'] = df.time.shift(1)
+    df['time'] = pd.to_datetime(df['time'], format='mixed')
+    df['prev_time'] = pd.to_datetime(df['prev_time'], format='mixed')
+    df.dropna(inplace=True)
+    df['cost'] = [getPrice(e, meastype='gas', amt=v)/100*v/1000 for e,s,v in zip(df.time,df.prev_time, df.value)]
+
+    for _,rw in df.iterrows():
+        tsmeas = rw.time.strftime('%Y-%m-%dT%H:%M:00Z')
+        jsbody = [{"measurement": "GasCost","time": f"{tsmeas}","fields": {"value": rw.cost}}]
+        client.write_points(jsbody)
+
+    df2 = df.drop(columns=['value', 'prev_time'])
+    df2.set_index('time', inplace=True)
+    halfhourly = df2.resample("30min").sum()
+    halfhourly.reset_index(inplace=True)
+    
+    for _,rw in halfhourly.iterrows():
+        tsmeas = rw.time.strftime('%Y-%m-%dT%H:%M:00Z')
+        jsbody = [{"measurement": "GasCost30m","time": f"{tsmeas}","fields": {"value": rw.cost}}]
+        client.write_points(jsbody)
+
+    updateDailyTotalGasCost(client, ed)
+
+    return 
+
+
+def updateDailyTotalGasCost(client, ed):
+    sd = ed - datetime.timedelta(days=7)
+    ts1 = sd.strftime('%Y-%m-%dT00:00:00Z')
+    ts2 = ed.strftime('%Y-%m-%dT%H:%M:%SZ')
+    vals = client.query(f"Select value from GasCost30m where time >= '{ts1}' and time <= '{ts2}'")
+    df = pd.DataFrame(vals['GasCost30m'])
+    df.set_index('time', inplace=True)
+    df.index = pd.to_datetime(df.index)
+    daily = df.resample("1d").sum()
+    daily.reset_index(inplace=True)
+    for _,rw in daily.iterrows():
+        tsmeas = rw.time.strftime('%Y-%m-%dT%H:%M:00Z')
+        jsbody = [{"measurement": "GasCostDay","time": f"{tsmeas}","fields": {"value": rw.value}}]
+        client.write_points(jsbody)
+
+
 def updateRecentElectricityCost(ed=None, lookback=90):
     _, usr, pwd, infhost, infport, ohdb = getInfluxUrl()
     client = InfluxDBClient(host=infhost, port=infport, username=usr, password=pwd, database=ohdb)

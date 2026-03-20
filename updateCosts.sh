@@ -5,3 +5,4 @@ cd $here
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate openhabstuff
 python -c "from miscUpdaters import updateRecentElectricityCost;updateRecentElectricityCost()"
+python -c "from miscUpdaters import updateRecentGasCost;updateRecentGasCost()"

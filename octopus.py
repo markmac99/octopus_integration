@@ -8,6 +8,7 @@ Important Note: octopus energy data is often delayed by hours or days, especiall
 
 """
 import os
+import sys
 import requests
 from requests.auth import HTTPBasicAuth 
 import datetime
@@ -44,7 +45,8 @@ def getOctopusMeters():
         return mpan, esns, mprn, gsns 
     except Exception:
         log.error('failed to get meter ids')
-        return False, 0, 0, 0
+        return '2000008641754', ['19L3451361'], '4020791204', ['E6S17033721961']
+        # outgoing meter seems to have a different number 2000061103285
 
 
 def getOctopusTariffs():
@@ -55,7 +57,7 @@ def getOctopusTariffs():
         r = requests.get(url, auth=(getApiKey(),''))
         if r.status_code != 200:
             print('unable to get data at this time, assuming tariffs')
-            return 'E-1R-GO-VAR-26-02-11-H', 'E-1R-VAR-22-11-01-H'
+            return 'E-1R-GO-VAR-26-02-11-H', 'E-1R-VAR-22-11-01-H', 'OUTGOING-VAR-24-10-26-H'
         data = r.json()
         for mps in data['properties'][0]['electricity_meter_points']:
             agrs = mps['agreements']
@@ -80,11 +82,11 @@ def getOctopusTariffs():
             if fromdt <= currdt and todt >= currdt:
                 gas_tariff = agr['tariff_code']
                 break
-        return elec_tariff, gas_tariff
+        return elec_tariff, gas_tariff, 'OUTGOING-VAR-24-10-26-H'
     except Exception as e:
         log.error('failed to get meter or tariff data')
         log.error(e)
-        return 'E-1R-GO-VAR-26-02-11-H', 'E-1R-VAR-22-11-01-H'
+        return 'E-1R-GO-VAR-26-02-11-H', 'E-1R-VAR-22-11-01-H', 'OUTGOING-VAR-24-10-26-H'
 
 
 def saveAsCsv(thisdf, typ, outdir):
@@ -156,14 +158,17 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
     :param daysback: number of days price data to request - default 7
     """
     if amt and amt < 0:
-        return 15.0
+        meastype = 'outgoing'
+
     if os.path.isfile(f'{meastype}_tariffs.json'):
         data = json.loads(open(f'{meastype}_tariffs.json', 'r').read())
         if meastype == 'gas':
             prices = [float(d['value_inc_vat']) for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
             return prices[0]
-        to_dts = [datetime.datetime.strptime(d['valid_to'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in data['results']]
-        fr_dts = [datetime.datetime.strptime(d['valid_from'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in data['results']]
+        dtto = [d['valid_to'] for d in data['results']]
+        dtfr = [d['valid_from'] for d in data['results']]
+        to_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtto]
+        fr_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtfr]
         prices = [float(d['value_inc_vat']) for d in data['results']]
         min_fr = min(fr_dts)
         if dt < min_fr:
@@ -174,8 +179,11 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
 
     # if the file doesn't exist or if the daterange isn't in it, then call the api
     print('no current tariff data, retrieving latest')
-    etariff, gtariff = getOctopusTariffs()
-    tariff = etariff if meastype == 'electricity' else gtariff
+    etariff, gtariff, outgoinget = getOctopusTariffs()
+
+    tariff = gtariff if meastype == 'gas' else etariff
+    tariff = outgoinget if meastype == 'outgoing' else etariff
+
     base_tariff = tariff[5:-2]
     fromdt = (datetime.datetime.now() - datetime.timedelta(days=daysback)).replace(hour=0, minute=0, microsecond=0)
     todt = fromdt + datetime.timedelta(days=daysback+2)
@@ -188,8 +196,13 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
         if meastype == 'gas':
             prices = [float(d['value_inc_vat']) for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
             return prices[0]
-        to_dts = [datetime.datetime.strptime(d['valid_to'], '%Y-%m-%dT%H:%M:%SZ') for d in data['results']]
-        fr_dts = [datetime.datetime.strptime(d['valid_from'], '%Y-%m-%dT%H:%M:%SZ') for d in data['results']]
+        dtto = [d['valid_to'] for d in data['results']]
+        dtfr = [d['valid_from'] for d in data['results']]
+        # handle Nulls
+        to_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else 
+                  datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtto]
+        fr_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else 
+                  datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtfr]
         prices = [float(d['value_inc_vat']) for d in data['results']]
         min_fr = min(fr_dts)
         if dt < min_fr:
@@ -203,9 +216,9 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
     return 0
 
 
-def getDataFromOctopus(mpan, esns, mprn, gsns):
+def getDataFromOctopus(mpan, esns, mprn, gsns, daysback=7):
     for esn in esns:
-        datadf = getOneDataset(mpan, esn, True)
+        datadf = getOneDataset(mpan, esn, True, daysback=daysback)
         if datadf is not None: 
             try:
                 saveAsCsv(datadf.copy(True), 'electricity', getDataDir())
@@ -213,7 +226,7 @@ def getDataFromOctopus(mpan, esns, mprn, gsns):
             except Exception as e:
                 print(e)
     for gsn in gsns:
-        datadf = getOneDataset(mprn, gsn, False)
+        datadf = getOneDataset(mprn, gsn, False, daysback=daysback)
         if datadf is not None: 
             try:
                 saveAsCsv(datadf.copy(True), 'gas', getDataDir())
@@ -249,6 +262,10 @@ def updateInfluxDB(df, typ, outdir):
 
 
 if __name__ == '__main__': 
+    daysback = 7
+    if len(sys.argv) > 1:
+        daysback = int(sys.argv[1])
+
     os.makedirs(getDataDir(), exist_ok=True)
     logpath = os.path.expanduser('~/logs')
     os.makedirs(logpath, exist_ok=True)
@@ -270,7 +287,7 @@ if __name__ == '__main__':
     try:
         mpan, esns, mprn, gsns = getOctopusMeters()
         if mpan:
-            getDataFromOctopus(mpan, esns, mprn, gsns)
+            getDataFromOctopus(mpan, esns, mprn, gsns, daysback=daysback)
 
         log.info('Finished')
     except Exception:

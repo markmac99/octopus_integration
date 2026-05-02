@@ -53,6 +53,9 @@ def getOctopusTariffs():
     url = f'{ACCTDETS_URL}/{getAccountId()}/'
     currdt = datetime.datetime.now()
     try:
+        export_tariff = 'None'
+        elec_tariff = 'None'
+        gas_tariff = 'None'
         print(url)
         r = requests.get(url, auth=(getApiKey(),''))
         if r.status_code != 200:
@@ -62,16 +65,23 @@ def getOctopusTariffs():
         for mps in data['properties'][0]['electricity_meter_points']:
             agrs = mps['agreements']
             if len(agrs) != 0:
-                break
-        for agr in agrs:
-            fromdt = datetime.datetime.strptime(agr['valid_from'][:19], '%Y-%m-%dT%H:%M:%S')
-            if fromdt <= currdt and agr['valid_to'] is None:
-                elec_tariff = agr['tariff_code']
-                break
-            todt = datetime.datetime.strptime(agr['valid_to'][:19], '%Y-%m-%dT%H:%M:%S')
-            if fromdt <= currdt and todt >= currdt:
-                elec_tariff = agr['tariff_code']
-                break
+                for agr in agrs:
+                    fromdt = datetime.datetime.strptime(agr['valid_from'][:19], '%Y-%m-%dT%H:%M:%S')
+                    if fromdt <= currdt and agr['valid_to'] is None:
+                        if mps['is_export']:
+                            export_tariff = agr['tariff_code']
+                        else:
+                            elec_tariff = agr['tariff_code']
+
+                        break
+                    todt = datetime.datetime.strptime(agr['valid_to'][:19], '%Y-%m-%dT%H:%M:%S')
+                    if fromdt <= currdt and todt >= currdt:
+                        elec_tariff = agr['tariff_code']
+                        if mps['is_export']:
+                            export_tariff = agr['tariff_code']
+                        else:
+                            elec_tariff = agr['tariff_code']
+                        break
         agrs = data['properties'][0]['gas_meter_points'][0]['agreements']
         for agr in agrs:
             fromdt = datetime.datetime.strptime(agr['valid_from'][:19], '%Y-%m-%dT%H:%M:%S')
@@ -82,7 +92,7 @@ def getOctopusTariffs():
             if fromdt <= currdt and todt >= currdt:
                 gas_tariff = agr['tariff_code']
                 break
-        return elec_tariff, gas_tariff, 'OUTGOING-VAR-24-10-26-H'
+        return elec_tariff, gas_tariff, export_tariff
     except Exception as e:
         log.error('failed to get meter or tariff data')
         log.error(e)
@@ -200,9 +210,9 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
         dtfr = [d['valid_from'] for d in data['results']]
         # handle Nulls
         to_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else 
-                  datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtto]
+                    datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtto]
         fr_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else 
-                  datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtfr]
+                    datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtfr]
         prices = [float(d['value_inc_vat']) for d in data['results']]
         min_fr = min(fr_dts)
         if dt < min_fr:

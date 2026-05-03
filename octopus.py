@@ -38,15 +38,20 @@ def getOctopusMeters():
     try:
         r = requests.get(url, auth=(getApiKey(),''))
         data = r.json()
-        mpan = data['properties'][0]['electricity_meter_points'][0]['mpan']    
-        esns = [x['serial_number'] for x in data['properties'][0]['electricity_meter_points'][0]['meters']]
+        mpans = []
+        esns = []
+        isexps = []
+        for mp in data['properties'][0]['electricity_meter_points']:
+            mpans.append(mp['mpan'])
+            esns.append([x['serial_number'] for x in mp['meters']])
+            isexps.append(mp['is_export'])
+
         mprn = data['properties'][0]['gas_meter_points'][0]['mprn']    
         gsns = [x['serial_number'] for x in data['properties'][0]['gas_meter_points'][0]['meters']]
-        return mpan, esns, mprn, gsns 
+        return mpans, esns, isexps, mprn, gsns 
     except Exception:
         log.error('failed to get meter ids')
-        return '2000008641754', ['19L3451361'], '4020791204', ['E6S17033721961']
-        # outgoing meter seems to have a different number 2000061103285
+        return ['2000008641754'], [['19L3451361']], [False], '4020791204', ['E6S17033721961']
 
 
 def getOctopusTariffs():
@@ -127,7 +132,7 @@ def getOneDataset(meterid, serialno, elecdata=True, daysback=7):
     while True: 
         p1 = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=-db1)).strftime('%Y-%m-%dT%H:%M:%SZ')
         p2 = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=-db2)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        log.info(f'get data for {p1} to {p2}')
+        log.info(f'get data for {p1} to {p2} for {meterid} with {serialno}')
         if elecdata:
             urlroot = ELEC_URL
         else:
@@ -169,25 +174,27 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
     """
     if amt and amt < 0:
         meastype = 'outgoing'
-
     if os.path.isfile(f'{meastype}_tariffs.json'):
-        data = json.loads(open(f'{meastype}_tariffs.json', 'r').read())
-        if meastype == 'gas':
-            prices = [float(d['value_inc_vat']) for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
-            return prices[0]
-        dtto = [d['valid_to'] for d in data['results']]
-        dtfr = [d['valid_from'] for d in data['results']]
-        to_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtto]
-        fr_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtfr]
-        prices = [float(d['value_inc_vat']) for d in data['results']]
-        min_fr = min(fr_dts)
-        if dt < min_fr:
-            return prices[fr_dts.index(min_fr)]
-        for f,t,p in zip(fr_dts,to_dts,prices):
-            if f <= dt and t > dt:
-                return p
+        fileage = datetime.datetime.now(tz=datetime.timezone.utc).timestamp() - os.stat(f'{meastype}_tariffs.json').st_mtime 
+        fileage /= 86400
+        if fileage < 7:
+            data = json.loads(open(f'{meastype}_tariffs.json', 'r').read())
+            if meastype == 'gas':
+                prices = [float(d['value_inc_vat']) for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
+                return prices[0]
+            dtto = [d['valid_to'] for d in data['results']]
+            dtfr = [d['valid_from'] for d in data['results']]
+            to_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtto]
+            fr_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtfr]
+            prices = [float(d['value_inc_vat']) for d in data['results']]
+            min_fr = min(fr_dts)
+            if dt < min_fr:
+                return prices[fr_dts.index(min_fr)]
+            for f,t,p in zip(fr_dts,to_dts,prices):
+                if f <= dt and t > dt:
+                    return p
 
-    # if the file doesn't exist or if the daterange isn't in it, then call the api
+    # if the file doesn't exist or its too old or if the daterange isn't in it, then call the api
     print('no current tariff data, retrieving latest')
     etariff, gtariff, outgoinget = getOctopusTariffs()
 
@@ -226,16 +233,21 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
     return 0
 
 
-def getDataFromOctopus(mpan, esns, mprn, gsns, daysback=7):
-    for esn in esns:
-        datadf = getOneDataset(mpan, esn, True, daysback=daysback)
-        if datadf is not None: 
-            try:
-                saveAsCsv(datadf.copy(True), 'electricity', getDataDir())
-                updateInfluxDB(datadf.copy(True), 'electricity', getDataDir())
-            except Exception as e:
-                print(e)
+def getDataFromOctopus(mpans, esns, isexps, mprn, gsns, daysback=7):
+    for i,mpan in enumerate(mpans):
+        isexp = isexps[i]
+        for esn in esns[i]:
+            print(mpan, esn)
+            datadf = getOneDataset(mpan, esn, True, daysback=daysback)
+            if datadf is not None: 
+                try:
+                    exprtyp = 'electricity' if not isexp else 'export'
+                    saveAsCsv(datadf.copy(True), exprtyp, getDataDir())
+                    updateInfluxDB(datadf.copy(True), exprtyp, getDataDir())
+                except Exception as e:
+                    print(e)
     for gsn in gsns:
+        print(mprn, gsn)
         datadf = getOneDataset(mprn, gsn, False, daysback=daysback)
         if datadf is not None: 
             try:
@@ -295,9 +307,9 @@ if __name__ == '__main__':
     open(inprogressflag, 'w').write('1\n')
 
     try:
-        mpan, esns, mprn, gsns = getOctopusMeters()
-        if mpan:
-            getDataFromOctopus(mpan, esns, mprn, gsns, daysback=daysback)
+        mpans, esns, isexps, mprn, gsns = getOctopusMeters()
+        if mpans:
+            getDataFromOctopus(mpans, esns, isexps, mprn, gsns, daysback=daysback)
 
         log.info('Finished')
     except Exception:

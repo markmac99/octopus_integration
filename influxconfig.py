@@ -22,5 +22,7 @@ def getMeasurementName(typ):
         return 'OctopusElect30m'
     elif typ == 'gas':
         return 'OctopusGas30m'
+    elif typ == 'export':
+        return 'OctopusExport30m'
     else:
         return None

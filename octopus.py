@@ -16,6 +16,8 @@ import pandas as pd
 import logging
 from time import sleep
 import json
+from pytz import timezone
+
 
 from loadconfig import getApiKey, getAccountId, getDataDir
 from influxconfig import getInfluxUrl, getMeasurementName
@@ -164,6 +166,19 @@ def getOneDataset(meterid, serialno, elecdata=True, daysback=7):
     return datadf
 
 
+def adjustforDST(test_dt):
+    """
+    Adjust the input time for DST. The provided time is local, but Octopus store their tariffs in UTC
+    so i need to subtract an hour from the provided time. Seems counterintuitive but it works
+    """
+    tz = timezone('Europe/London')
+    change_times =  [ x for x in tz._utc_transition_times if x.year==test_dt.year]
+    local_test_dt = datetime.datetime(test_dt.year, test_dt.month, test_dt.day, test_dt.hour)
+    if local_test_dt >= change_times[0] and local_test_dt < change_times[1]:
+        test_dt += datetime.timedelta(hours=-1)
+    return test_dt
+
+
 def getPrice(dt, meastype='electricity', daysback=7, amt=None):
     """
     getPrice retrieves the current price for a unit of electricity or gas
@@ -172,6 +187,7 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
     :param meastype: 'electricity' or 'gas'
     :param daysback: number of days price data to request - default 7
     """
+    dt = adjustforDST(dt)
     if amt and amt < 0:
         meastype = 'outgoing'
     if os.path.isfile(f'{meastype}_tariffs.json'):

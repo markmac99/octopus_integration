@@ -5,12 +5,11 @@
 import datetime
 import os
 import pandas as pd
-from influxconfig import getInfluxUrl
 from influxdb import InfluxDBClient
-from updateOpenhab import updateMeterReading
 import logging
 
-from influxconfig import getMeasurementName
+from updateOpenhab import updateMeterReading
+from influxconfig import getInfluxUrl, getMeasurementName
 
 from octopus import getPrice
 
@@ -69,7 +68,10 @@ def updateDailyTotalGasCost(client, ed):
         client.write_points(jsbody)
 
 
-def updateRecentElectricityCost(ed=None, lookback=90):
+def updateRecentElectricityCost(ed=None, lookback=90, src='Enphase_Envoy_Grid_Watts'):
+    """
+    Get electricity cost, either from the Enphase gateway or from Octopus' raw data (HouseElectricityPower)
+    """
     _, usr, pwd, infhost, infport, ohdb = getInfluxUrl()
     client = InfluxDBClient(host=infhost, port=infport, username=usr, password=pwd, database=ohdb)
     if not ed:
@@ -77,13 +79,13 @@ def updateRecentElectricityCost(ed=None, lookback=90):
     sd = ed - datetime.timedelta(minutes=lookback)
     ts1 = sd.strftime('%Y-%m-%dT%H:00:00Z')
     ts2 = ed.strftime('%Y-%m-%dT%H:%M:%SZ')
-    vals = client.query(f"Select value from HouseElectricityPower where time >= '{ts1}' and time < '{ts2}'")
-    df = pd.DataFrame(vals['HouseElectricityPower'])
+    vals = client.query(f"Select value from {src} where time >= '{ts1}' and time < '{ts2}'")
+    df = pd.DataFrame(vals[src])
     df['prev_time'] = df.time.shift(1)
     df['time'] = pd.to_datetime(df['time'], format='mixed')
     df['prev_time'] = pd.to_datetime(df['prev_time'], format='mixed')
     df.dropna(inplace=True)
-    df['cost'] = [(e-s).seconds*getPrice(e, amt=v)/360000*v/1000 for e,s,v in zip(df.time,df.prev_time, df.value)]
+    df['cost'] = [(e-s).seconds/3600*getPrice(e, amt=v)/100*v/1000 for e,s,v in zip(df.time,df.prev_time, df.value)]
 
     for _,rw in df.iterrows():
         tsmeas = rw.time.strftime('%Y-%m-%dT%H:%M:00Z')
@@ -112,7 +114,7 @@ def updateDailyTotalElecCost(client, ed):
     vals = client.query(f"Select value from ElectricityCost30m where time >= '{ts1}' and time <= '{ts2}'")
     df = pd.DataFrame(vals['ElectricityCost30m'])
     df.set_index('time', inplace=True)
-    df.index = pd.to_datetime(df.index)
+    df.index = pd.to_datetime(df.index, format='mixed')
     daily = df.resample("1d").sum()
     daily.reset_index(inplace=True)
     for _,rw in daily.iterrows():

@@ -47,13 +47,14 @@ def updateRecentGasCost(ed=None, lookback=90):
         jsbody = [{"measurement": "GasCost30m","time": f"{tsmeas}","fields": {"value": rw.cost}}]
         client.write_points(jsbody)
 
-    updateDailyTotalGasCost(client, ed)
+    updateDailyTotalGasCost(client, ed, daysback=lookback/24/60)
 
     return 
 
 
-def updateDailyTotalGasCost(client, ed):
-    sd = ed - datetime.timedelta(days=7)
+def updateDailyTotalGasCost(client, ed, daysback=7):
+    print(f'looking back {daysback} days')
+    sd = ed - datetime.timedelta(days=daysback)
     ts1 = sd.strftime('%Y-%m-%dT00:00:00Z')
     ts2 = ed.strftime('%Y-%m-%dT%H:%M:%SZ')
     vals = client.query(f"Select value from GasCost30m where time >= '{ts1}' and time <= '{ts2}'")

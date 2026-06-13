@@ -65,45 +65,47 @@ def getOctopusTariffs():
         gas_tariff = 'None'
         print(url)
         r = requests.get(url, auth=(getApiKey(),''))
-        if r.status_code != 200:
-            print('unable to get data at this time, assuming tariffs')
-            return 'E-1R-GO-VAR-26-02-11-H', 'E-1R-VAR-22-11-01-H', 'OUTGOING-VAR-24-10-26-H'
-        data = r.json()
-        for mps in data['properties'][0]['electricity_meter_points']:
-            agrs = mps['agreements']
-            if len(agrs) != 0:
-                for agr in agrs:
-                    fromdt = datetime.datetime.strptime(agr['valid_from'][:19], '%Y-%m-%dT%H:%M:%S')
-                    if fromdt <= currdt and agr['valid_to'] is None:
-                        if mps['is_export']:
-                            export_tariff = agr['tariff_code']
-                        else:
-                            elec_tariff = agr['tariff_code']
-
-                        break
-                    todt = datetime.datetime.strptime(agr['valid_to'][:19], '%Y-%m-%dT%H:%M:%S')
-                    if fromdt <= currdt and todt >= currdt:
-                        elec_tariff = agr['tariff_code']
-                        if mps['is_export']:
-                            export_tariff = agr['tariff_code']
-                        else:
-                            elec_tariff = agr['tariff_code']
-                        break
-        agrs = data['properties'][0]['gas_meter_points'][0]['agreements']
-        for agr in agrs:
-            fromdt = datetime.datetime.strptime(agr['valid_from'][:19], '%Y-%m-%dT%H:%M:%S')
-            if fromdt <= currdt and agr['valid_to'] is None:
-                gas_tariff = agr['tariff_code']
-                break
-            todt = datetime.datetime.strptime(agr['valid_to'][:19], '%Y-%m-%dT%H:%M:%S')
-            if fromdt <= currdt and todt >= currdt:
-                gas_tariff = agr['tariff_code']
-                break
-        return elec_tariff, gas_tariff, export_tariff
     except Exception as e:
         log.error('failed to get meter or tariff data')
         log.error(e)
-        return 'E-1R-GO-VAR-26-02-11-H', 'E-1R-VAR-22-11-01-H', 'OUTGOING-VAR-24-10-26-H'
+        print('problem analysing data')
+        print(data)
+        return 'E-1R-GO-VAR-26-02-11-H', 'G-1R-VAR-22-11-01-H', 'OUTGOING-VAR-24-10-26-H'
+
+    if r.status_code != 200:
+        print('unable to get data at this time, assuming tariffs')
+        return 'E-1R-GO-VAR-26-02-11-H', 'G-1R-VAR-22-11-01-H', 'OUTGOING-VAR-24-10-26-H'
+    data = r.json()
+    for mps in data['properties'][0]['electricity_meter_points']:
+        agrs = mps['agreements']
+        if len(agrs) != 0:
+            for agr in agrs:
+                fromdt = datetime.datetime.strptime(agr['valid_from'][:19], '%Y-%m-%dT%H:%M:%S')
+                if fromdt <= currdt and agr['valid_to'] is None:
+                    if mps['is_export']:
+                        export_tariff = agr['tariff_code']
+                    else:
+                        elec_tariff = agr['tariff_code']
+                    break
+                todt = datetime.datetime.strptime(agr['valid_to'][:19], '%Y-%m-%dT%H:%M:%S')
+                if fromdt <= currdt and todt >= currdt:
+                    elec_tariff = agr['tariff_code']
+                    if mps['is_export']:
+                        export_tariff = agr['tariff_code']
+                    else:
+                        elec_tariff = agr['tariff_code']
+                    break
+    agrs = data['properties'][0]['gas_meter_points'][0]['agreements']
+    for agr in agrs:
+        fromdt = datetime.datetime.strptime(agr['valid_from'][:19], '%Y-%m-%dT%H:%M:%S')
+        if fromdt <= currdt and agr['valid_to'] is None:
+            gas_tariff = agr['tariff_code']
+            break
+        todt = datetime.datetime.strptime(agr['valid_to'][:19], '%Y-%m-%dT%H:%M:%S')
+        if fromdt <= currdt and todt >= currdt:
+            gas_tariff = agr['tariff_code']
+            break
+    return elec_tariff, gas_tariff, export_tariff
 
 
 def saveAsCsv(thisdf, typ, outdir):
@@ -195,27 +197,35 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
         fileage /= 86400
         if fileage < 7:
             data = json.loads(open(f'{meastype}_tariffs.json', 'r').read())
-            if meastype == 'gas':
-                prices = [float(d['value_inc_vat']) for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
-                return prices[0]
-            dtto = [d['valid_to'] for d in data['results']]
-            dtfr = [d['valid_from'] for d in data['results']]
-            to_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtto]
-            fr_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtfr]
-            prices = [float(d['value_inc_vat']) for d in data['results']]
-            min_fr = min(fr_dts)
-            if dt < min_fr:
-                return prices[fr_dts.index(min_fr)]
-            for f,t,p in zip(fr_dts,to_dts,prices):
-                if f <= dt and t > dt:
-                    return p
+            if 'results' in data:
+                if meastype == 'gas':
+                    prices = [float(d['value_inc_vat']) for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
+                    return prices[0]
+                dtto = [d['valid_to'] for d in data['results']]
+                dtfr = [d['valid_from'] for d in data['results']]
+                to_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtto]
+                fr_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtfr]
+                prices = [float(d['value_inc_vat']) for d in data['results']]
+                min_fr = min(fr_dts)
+                if dt < min_fr:
+                    return prices[fr_dts.index(min_fr)]
+                for f,t,p in zip(fr_dts,to_dts,prices):
+                    if f <= dt and t > dt:
+                        return p
 
     # if the file doesn't exist or its too old or if the daterange isn't in it, then call the api
     print('no current tariff data, retrieving latest')
     etariff, gtariff, outgoinget = getOctopusTariffs()
+    print(etariff, gtariff, outgoinget)
 
-    tariff = gtariff if meastype == 'gas' else etariff
-    tariff = outgoinget if meastype == 'outgoing' else etariff
+    if meastype == 'gas':
+        tariff = gtariff
+    elif meastype == 'outgoing':
+        tariff = outgoinget
+    else:
+        tariff = etariff
+
+    print(f'tariff is {tariff}')
 
     base_tariff = tariff[5:-2]
     fromdt = (datetime.datetime.now() - datetime.timedelta(days=daysback)).replace(hour=0, minute=0, microsecond=0)
@@ -224,28 +234,30 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
         f'standard-unit-rates/?period_from={fromdt.strftime("%Y-%m-%dT%H:%M:%SZ")}&period_to={todt.strftime("%Y-%m-%dT%H:%M:%SZ")}'
     try:
         r = requests.get(url)
-        data = r.json()
-        open(f'{meastype}_tariffs.json', 'w').write(json.dumps(data))
-        if meastype == 'gas':
-            prices = [float(d['value_inc_vat']) for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
-            return prices[0]
-        dtto = [d['valid_to'] for d in data['results']]
-        dtfr = [d['valid_from'] for d in data['results']]
-        # handle Nulls
-        to_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else 
-                    datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtto]
-        fr_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else 
-                    datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtfr]
-        prices = [float(d['value_inc_vat']) for d in data['results']]
-        min_fr = min(fr_dts)
-        if dt < min_fr:
-            return prices[fr_dts.index(min_fr)]
-        for f,t,p in zip(fr_dts,to_dts,prices):
-            if f <= dt and t > dt:
-                return p
-
     except Exception:
         print('unable to connect to API')
+        return 0
+    
+    data = r.json()
+    open(f'{meastype}_tariffs.json', 'w').write(json.dumps(data))
+    if meastype == 'gas':
+        prices = [float(d['value_inc_vat']) for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
+        return prices[0]
+    dtto = [d['valid_to'] for d in data['results']]
+    dtfr = [d['valid_from'] for d in data['results']]
+    # handle Nulls
+    to_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else 
+                datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtto]
+    fr_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else 
+                datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtfr]
+    prices = [float(d['value_inc_vat']) for d in data['results']]
+    min_fr = min(fr_dts)
+    if dt < min_fr:
+        return prices[fr_dts.index(min_fr)]
+    for f,t,p in zip(fr_dts,to_dts,prices):
+        if f <= dt and t > dt:
+            return p
+
     return 0
 
 

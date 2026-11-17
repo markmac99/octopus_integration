@@ -22,10 +22,11 @@ def updateMeterReading(reading, readingdate, elec=True):
         OHTimestamp = openhab.get_item('HouseMeterTimestamp')
         if elec is True:
             OHreading = openhab.get_item('HouseElectricityMeterReading')
+            OHreading.state = reading
+            OHTimestamp.state = readingdate
         else:
             OHreading = openhab.get_item('HouseGasMeterReading')
-        OHreading.state = reading
-        OHTimestamp.state = readingdate
+            OHreading.state = reading
     except Exception as e:
         print(e)
     return

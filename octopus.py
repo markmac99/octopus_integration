@@ -63,17 +63,16 @@ def getOctopusTariffs():
         export_tariff = 'None'
         elec_tariff = 'None'
         gas_tariff = 'None'
-        print(url)
         r = requests.get(url, auth=(getApiKey(),''))
     except Exception as e:
         log.error('failed to get meter or tariff data')
         log.error(e)
-        print('problem analysing data')
-        print(data)
+        log.warning('problem analysing data')
+        log.warning(data)
         return 'E-1R-GO-VAR-26-02-11-H', 'G-1R-VAR-22-11-01-H', 'OUTGOING-VAR-24-10-26-H'
 
     if r.status_code != 200:
-        print('unable to get data at this time, assuming tariffs')
+        log.warning('unable to get data at this time, assuming tariffs')
         return 'E-1R-GO-VAR-26-02-11-H', 'G-1R-VAR-22-11-01-H', 'OUTGOING-VAR-24-10-26-H'
     data = r.json()
     for mps in data['properties'][0]['electricity_meter_points']:
@@ -214,9 +213,9 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
                         return p
 
     # if the file doesn't exist or its too old or if the daterange isn't in it, then call the api
-    print('no current tariff data, retrieving latest')
+    log.info('no current tariff data, retrieving latest')
     etariff, gtariff, outgoinget = getOctopusTariffs()
-    print(etariff, gtariff, outgoinget)
+    log.info(etariff, gtariff, outgoinget)
 
     if meastype == 'gas':
         tariff = gtariff
@@ -225,7 +224,7 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
     else:
         tariff = etariff
 
-    print(f'tariff is {tariff}')
+    log.info(f'tariff is {tariff}')
 
     base_tariff = tariff[5:-2]
     fromdt = (datetime.datetime.now() - datetime.timedelta(days=daysback)).replace(hour=0, minute=0, microsecond=0)
@@ -235,7 +234,7 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
     try:
         r = requests.get(url)
     except Exception:
-        print('unable to connect to API')
+        log.warning('unable to connect to API')
         return 0
     
     data = r.json()
@@ -265,7 +264,7 @@ def getDataFromOctopus(mpans, esns, isexps, mprn, gsns, daysback=7):
     for i,mpan in enumerate(mpans):
         isexp = isexps[i]
         for esn in esns[i]:
-            print(mpan, esn)
+            #print(mpan, esn)
             datadf = getOneDataset(mpan, esn, True, daysback=daysback)
             if datadf is not None: 
                 try:
@@ -273,16 +272,16 @@ def getDataFromOctopus(mpans, esns, isexps, mprn, gsns, daysback=7):
                     saveAsCsv(datadf.copy(True), exprtyp, getDataDir())
                     updateInfluxDB(datadf.copy(True), exprtyp, getDataDir())
                 except Exception as e:
-                    print(e)
+                    log.warning(e)
     for gsn in gsns:
-        print(mprn, gsn)
+        #print(mprn, gsn)
         datadf = getOneDataset(mprn, gsn, False, daysback=daysback)
         if datadf is not None: 
             try:
                 saveAsCsv(datadf.copy(True), 'gas', getDataDir())
                 updateInfluxDB(datadf.copy(True), 'gas', getDataDir())
             except Exception as e:
-                print(e)
+                log.warning(e)
     return 
 
 

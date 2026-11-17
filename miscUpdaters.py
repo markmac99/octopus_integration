@@ -166,35 +166,57 @@ def updateDailyHouseGas(sd):
         log.info(f'No gas data for {ts1}')
 
 
-def updateElecMeter(sd=None):
+def updateMeter(elec=True):
     _, usr, pwd, infhost, infport, ohdb = getInfluxUrl()
     client = InfluxDBClient(host=infhost, port=infport, username=usr, password=pwd, database=ohdb)
     currentmeter = 0
-    if sd is None:
-        sd = datetime.datetime.now().replace(hour=1, minute=0,second=0, microsecond=0) + datetime.timedelta(days=-3)
-    maxdt = datetime.datetime.now().replace(hour=1, minute=0,second=0, microsecond=0)
-    while sd < maxdt:
-        ts1 = sd.strftime('%Y-%m-%dT%H:%M:00Z')
-        ed = sd + datetime.timedelta(minutes=30)
-        ts2 = ed.strftime('%Y-%m-%dT%H:%M:00Z')
-        vals = client.query(f"select * from HouseElectricityPower where time >= '{ts1}' and time < '{ts2}'")
-        if vals:
-            usage = vals.raw['series'][0]['values'][0][1]/1000
-        else:
-            usage = 0
-        vals = client.query(f"select * from HouseElectricityMeterReading where time >= '{ts1}' and time < '{ts2}'")
-        if vals:
-            currvals = vals.raw['series'][-1]
-            validx = currvals['columns'].index('value')
-            currentmeter = currvals['values'][0][validx]
-            currentmeter += usage
-        #log.info(f'updating elemeter for {ts1} with {currentmeter}')
-        if currentmeter > 0:
-            jsbody = [{"measurement": "HouseElectricityMeterReading","time": f"{ts2}","fields": {"value": round(currentmeter,1)}}]
-            client.write_points(jsbody)
-        sd = ed
-    log.info(f'updated electricity meter to {currentmeter} as of {ed}')
-    updateMeterReading(currentmeter, ed, True)
+
+    if elec:
+        metertbl = 'HouseElectricityMeterReading'
+        livetbl = 'OctopusElect30m'
+    else:
+        metertbl = 'HouseGasMeterReading'
+        livetbl = 'OctopusGas30m'
+
+    vals = client.query(f"select last(value)  from {metertbl}")
+    if not vals:
+        log.warning('unable to get last saved meter value')
+        return 
+    lasttime = vals.raw['series'][0]['values'][0][0]
+    lastval = float(vals.raw['series'][0]['values'][0][1])
+    while lastval == 0:
+        vals = client.query(f"select last(value)  from {metertbl} where time < '{lasttime}'")
+        lasttime = vals.raw['series'][0]['values'][0][0]
+        lastval = float(vals.raw['series'][0]['values'][0][1])
+    log.info(f'last good value was {lastval} at {lasttime}')
+    vals = client.query(f"select time, value from {livetbl} where time >= '{lasttime}'")
+    if not vals:
+        log.warning('no new consumption data')
+        return 
+    wattsadded = 0
+    for rw in vals.raw['series'][0]['values']:
+            wattsadded += float(rw[1])
+            ed = rw[0]
+    log.info(f'added {wattsadded} since {lasttime}')   
+    if elec:
+        currentmeter = lastval + wattsadded/1000.0
+    else:
+        # convert watts to cubic metres
+        # cum x 1.02264 x 40.0 ÷ 3.6 = kWh
+        cumadded = wattsadded/1000.0 / (1.02264 * 40.0 /3.6)
+        currentmeter = lastval + cumadded
+    
+    if currentmeter > 0:
+        jsbody = [{"measurement": metertbl,"time": f"{ed}",
+                   "fields": {"value": round(currentmeter,1)}}]
+        client.write_points(jsbody)
+        log.info(f'updated {metertbl} to {currentmeter} as of {ed}')
+        try:
+            ts = datetime.datetime.strptime(ed, '%Y-%m-%dT%H:%M:%SZ')
+        except:
+            ts = datetime.datetime.strptime(ed, '%Y-%m-%dT%H:%M:%S.%fZ')
+        updateMeterReading(currentmeter, ts, elec)
+    return 
 
 
 if __name__ == '__main__': 
@@ -215,5 +237,6 @@ if __name__ == '__main__':
     updateDailyHouseGas(datetime.datetime.now() + datetime.timedelta(days=-1))
     updateDailyHouseGas(datetime.datetime.now() + datetime.timedelta(days=-2))
 
-    #updateElecMeter()
+    updateMeter(elec=True)
+    updateMeter(elec=False)
     log.info('Finished')

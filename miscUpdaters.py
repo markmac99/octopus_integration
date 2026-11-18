@@ -7,8 +7,9 @@ import os
 import pandas as pd
 from influxdb import InfluxDBClient
 import logging
+import requests
+from requests.auth import HTTPBasicAuth 
 
-from updateOpenhab import updateMeterReading
 from influxconfig import getInfluxUrl, getMeasurementName
 
 from octopus import getPrice
@@ -24,13 +25,13 @@ def updateRecentGasCost(ed=None, lookback=90):
     sd = ed - datetime.timedelta(minutes=lookback)
     ts1 = sd.strftime('%Y-%m-%dT%H:00:00Z')
     ts2 = ed.strftime('%Y-%m-%dT%H:%M:%SZ')
-    vals = client.query(f"Select value from HouseGasPower where time >= '{ts1}' and time < '{ts2}'")
-    df = pd.DataFrame(vals['HouseGasPower'])
+    vals = client.query(f"Select value from OctopusGas30m where time >= '{ts1}' and time < '{ts2}'")
+    df = pd.DataFrame(vals['OctopusGas30m'])
     df['prev_time'] = df.time.shift(1)
     df['time'] = pd.to_datetime(df['time'], format='mixed')
     df['prev_time'] = pd.to_datetime(df['prev_time'], format='mixed')
     df.dropna(inplace=True)
-    df['cost'] = [getPrice(e, meastype='gas', amt=v)/100*v/1000 for e,s,v in zip(df.time,df.prev_time, df.value)]
+    df['cost'] = [getPrice(e, meastype='gas', amt=v)/100*v/1000 for e,v in zip(df.time, df.value)]
 
     for _,rw in df.iterrows():
         tsmeas = rw.time.strftime('%Y-%m-%dT%H:%M:00Z')
@@ -167,7 +168,7 @@ def updateDailyHouseGas(sd):
 
 
 def updateMeter(elec=True):
-    _, usr, pwd, infhost, infport, ohdb = getInfluxUrl()
+    url, usr, pwd, infhost, infport, ohdb = getInfluxUrl()
     client = InfluxDBClient(host=infhost, port=infport, username=usr, password=pwd, database=ohdb)
     currentmeter = 0
 
@@ -189,6 +190,7 @@ def updateMeter(elec=True):
         lasttime = vals.raw['series'][0]['values'][0][0]
         lastval = float(vals.raw['series'][0]['values'][0][1])
     log.info(f'last good value was {lastval} at {lasttime}')
+    print(f'last good value was {lastval} at {lasttime}')
     vals = client.query(f"select time, value from {livetbl} where time >= '{lasttime}'")
     if not vals:
         log.warning('no new consumption data')
@@ -198,6 +200,7 @@ def updateMeter(elec=True):
             wattsadded += float(rw[1])
             ed = rw[0]
     log.info(f'added {wattsadded} since {lasttime}')   
+    print(f'added {wattsadded} since {lasttime}')   
     if elec:
         currentmeter = lastval + wattsadded/1000.0
     else:
@@ -207,15 +210,16 @@ def updateMeter(elec=True):
         currentmeter = lastval + cumadded
     
     if currentmeter > 0:
-        jsbody = [{"measurement": metertbl,"time": f"{ed}",
-                   "fields": {"value": round(currentmeter,1)}}]
-        client.write_points(jsbody)
-        log.info(f'updated {metertbl} to {currentmeter} as of {ed}')
         try:
             ts = datetime.datetime.strptime(ed, '%Y-%m-%dT%H:%M:%SZ')
         except:
             ts = datetime.datetime.strptime(ed, '%Y-%m-%dT%H:%M:%S.%fZ')
-        updateMeterReading(currentmeter, ts, elec)
+        lasttime_ts = int(ts.timestamp()*1e9)
+        idbdata = f'{metertbl} value={currentmeter} {lasttime_ts}\n'
+        authn = HTTPBasicAuth(usr, pwd)
+        requests.post(url, data=idbdata, auth=authn)
+        log.info(f'updated {metertbl} to {currentmeter} as of {ed}')
+        print(f'updated {metertbl} to {currentmeter} as of {ed}')
     return 
 
 

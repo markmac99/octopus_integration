@@ -199,17 +199,20 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
             if 'results' in data:
                 if meastype == 'gas':
                     prices = [float(d['value_inc_vat']) for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
-                    return prices[0]
-                dtto = [d['valid_to'] for d in data['results']]
-                dtfr = [d['valid_from'] for d in data['results']]
+                    dtto = [d['valid_to'] for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
+                    dtfr = [d['valid_from'] for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
+                else:
+                    prices = [float(d['value_inc_vat']) for d in data['results']]
+                    dtto = [d['valid_to'] for d in data['results']]
+                    dtfr = [d['valid_from'] for d in data['results']]
                 to_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtto]
                 fr_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtfr]
-                prices = [float(d['value_inc_vat']) for d in data['results']]
                 min_fr = min(fr_dts)
                 if dt < min_fr:
                     return prices[fr_dts.index(min_fr)]
                 for f,t,p in zip(fr_dts,to_dts,prices):
                     if f <= dt and t > dt:
+                        print(dt, p)
                         return p
 
     # if the file doesn't exist or its too old or if the daterange isn't in it, then call the api
@@ -227,7 +230,7 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
     log.info(f'tariff is {tariff}')
 
     base_tariff = tariff[5:-2]
-    fromdt = (datetime.datetime.now() - datetime.timedelta(days=daysback)).replace(hour=0, minute=0, microsecond=0)
+    fromdt = (datetime.datetime.now() - datetime.timedelta(days=90)).replace(hour=0, minute=0, microsecond=0)
     todt = fromdt + datetime.timedelta(days=daysback+2)
     url = f'{PRODUCTS_URL}/{base_tariff}/{meastype}-tariffs/{tariff}/' \
         f'standard-unit-rates/?period_from={fromdt.strftime("%Y-%m-%dT%H:%M:%SZ")}&period_to={todt.strftime("%Y-%m-%dT%H:%M:%SZ")}'
@@ -241,23 +244,26 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
     open(f'{meastype}_tariffs.json', 'w').write(json.dumps(data))
     if meastype == 'gas':
         prices = [float(d['value_inc_vat']) for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
-        return prices[0]
-    dtto = [d['valid_to'] for d in data['results']]
-    dtfr = [d['valid_from'] for d in data['results']]
+        dtto = [d['valid_to'] for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
+        dtfr = [d['valid_from'] for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
+    else:
+        prices = [float(d['value_inc_vat']) for d in data['results']]
+        dtto = [d['valid_to'] for d in data['results']]
+        dtfr = [d['valid_from'] for d in data['results']]
     # handle Nulls
     to_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else 
                 datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtto]
     fr_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else 
                 datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtfr]
-    prices = [float(d['value_inc_vat']) for d in data['results']]
     min_fr = min(fr_dts)
     if dt < min_fr:
         return prices[fr_dts.index(min_fr)]
     for f,t,p in zip(fr_dts,to_dts,prices):
         if f <= dt and t > dt:
+            print(dt, p)
             return p
 
-    return 0
+    return prices[-1]
 
 
 def getDataFromOctopus(mpans, esns, isexps, mprn, gsns, daysback=7):
@@ -298,8 +304,8 @@ def convertToIdbFmt(df, meas, outdir):
             outf.write(f'{rw.measurement} value={cons} {rw.ts}\n')
     idbdata = open(os.path.join(outdir, f'{meas}.txt'), 'rb').read()
     return idbdata
-    
 
+    
 def updateInfluxDB(df, typ, outdir):
     url, usr, pwd, _, _, _ = getInfluxUrl()
     meas = getMeasurementName(typ)

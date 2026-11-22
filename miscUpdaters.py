@@ -26,35 +26,37 @@ def updateRecentGasCost(ed=None, lookback=90):
     ts1 = sd.strftime('%Y-%m-%dT%H:00:00Z')
     ts2 = ed.strftime('%Y-%m-%dT%H:%M:%SZ')
     vals = client.query(f"Select value from OctopusGas30m where time >= '{ts1}' and time < '{ts2}'")
-    df = pd.DataFrame(vals['OctopusGas30m'])
-    df['prev_time'] = df.time.shift(1)
-    df['time'] = pd.to_datetime(df['time'], format='mixed')
-    df['prev_time'] = pd.to_datetime(df['prev_time'], format='mixed')
-    df.dropna(inplace=True)
-    df['cost'] = [getPrice(e, meastype='gas', amt=v)/100*v/1000 for e,v in zip(df.time, df.value)]
+    if vals:
+        df = pd.DataFrame(vals['OctopusGas30m'])
+        df['prev_time'] = df.time.shift(1)
+        df['time'] = pd.to_datetime(df['time'], format='mixed')
+        df['prev_time'] = pd.to_datetime(df['prev_time'], format='mixed')
+        df.dropna(inplace=True)
+        df['cost'] = [getPrice(e, meastype='gas', amt=v)/100*v/1000 for e,v in zip(df.time, df.value)]
 
-    for _,rw in df.iterrows():
-        tsmeas = rw.time.strftime('%Y-%m-%dT%H:%M:00Z')
-        jsbody = [{"measurement": "GasCost","time": f"{tsmeas}","fields": {"value": rw.cost}}]
-        client.write_points(jsbody)
+        for _,rw in df.iterrows():
+            tsmeas = rw.time.strftime('%Y-%m-%dT%H:%M:00Z')
+            jsbody = [{"measurement": "GasCost","time": f"{tsmeas}","fields": {"value": rw.cost}}]
+            client.write_points(jsbody)
 
-    df2 = df.drop(columns=['value', 'prev_time'])
-    df2.set_index('time', inplace=True)
-    halfhourly = df2.resample("30min").sum()
-    halfhourly.reset_index(inplace=True)
-    
-    for _,rw in halfhourly.iterrows():
-        tsmeas = rw.time.strftime('%Y-%m-%dT%H:%M:00Z')
-        jsbody = [{"measurement": "GasCost30m","time": f"{tsmeas}","fields": {"value": rw.cost}}]
-        client.write_points(jsbody)
+        df2 = df.drop(columns=['value', 'prev_time'])
+        df2.set_index('time', inplace=True)
+        halfhourly = df2.resample("30min").sum()
+        halfhourly.reset_index(inplace=True)
+        
+        for _,rw in halfhourly.iterrows():
+            tsmeas = rw.time.strftime('%Y-%m-%dT%H:%M:00Z')
+            jsbody = [{"measurement": "GasCost30m","time": f"{tsmeas}","fields": {"value": rw.cost}}]
+            client.write_points(jsbody)
 
-    updateDailyTotalGasCost(client, ed, daysback=lookback/24/60)
-
+        updateDailyTotalGasCost(client, ed, daysback=lookback/24/60)
+    else:
+        log.warning(f'no data avaiable for {ts1} to {ts2}')
     return 
 
 
 def updateDailyTotalGasCost(client, ed, daysback=7):
-    print(f'looking back {daysback} days')
+    log.info(f'looking back {daysback} days')
     sd = ed - datetime.timedelta(days=daysback)
     ts1 = sd.strftime('%Y-%m-%dT00:00:00Z')
     ts2 = ed.strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -66,7 +68,7 @@ def updateDailyTotalGasCost(client, ed, daysback=7):
     daily.reset_index(inplace=True)
     for _,rw in daily.iterrows():
         tsmeas = rw.time.strftime('%Y-%m-%dT%H:%M:00Z')
-        jsbody = [{"measurement": "GasCostDay","time": f"{tsmeas}","fields": {"value": rw.value}}]
+        jsbody = [{"measurement": "GasCostDay2","time": f"{tsmeas}","fields": {"value": rw.value}}]
         client.write_points(jsbody)
 
 
@@ -81,47 +83,42 @@ def updateRecentElectricityCost(ed=None, lookback=90, src='Enphase_Envoy_Grid_Wa
     sd = ed - datetime.timedelta(minutes=lookback)
     ts1 = sd.strftime('%Y-%m-%dT%H:00:00Z')
     ts2 = ed.strftime('%Y-%m-%dT%H:%M:%SZ')
+    log.info(f'getting data for {ts1} to {ts2}')
     vals = client.query(f"Select value from {src} where time >= '{ts1}' and time < '{ts2}'")
-    df = pd.DataFrame(vals[src])
-    df['prev_time'] = df.time.shift(1)
-    df['time'] = pd.to_datetime(df['time'], format='mixed')
-    df['prev_time'] = pd.to_datetime(df['prev_time'], format='mixed')
-    df.dropna(inplace=True)
-    df['cost'] = [(e-s).seconds/3600*getPrice(e, amt=v)/100*v/1000 for e,s,v in zip(df.time,df.prev_time, df.value)]
+    if vals:
+        df = pd.DataFrame(vals[src])
+        log.info(f'retrieved {len(df)} rows')
+        df['time'] = pd.to_datetime(df['time'], format='mixed')
+        df.set_index('time', inplace=True)
+        halfhourly = df.resample("30min", label='right').sum()
+        halfhourly.reset_index(inplace=True)
+        halfhourly['value'] = halfhourly.value/60
+        halfhourly.dropna(inplace=True)
+        halfhourly['cost'] = [getPrice(e, amt=v)/100*v/1000 for e,v in zip(halfhourly.time, halfhourly.value)]
 
-    for _,rw in df.iterrows():
-        tsmeas = rw.time.strftime('%Y-%m-%dT%H:%M:00Z')
-        jsbody = [{"measurement": "ElectricityCost","time": f"{tsmeas}","fields": {"value": rw.cost}}]
-        client.write_points(jsbody)
+        log.info('half-hourly')
+        for _,rw in halfhourly.iterrows():
+            tsmeas = rw.time.strftime('%Y-%m-%dT%H:%M:00Z')
+            jsbody = [{"measurement": "ElectricityCost30m","time": f"{tsmeas}","fields": {"value": rw.cost}}]
+            client.write_points(jsbody)
 
-    df2 = df.drop(columns=['value', 'prev_time'])
-    df2.set_index('time', inplace=True)
-    halfhourly = df2.resample("30min").sum()
-    halfhourly.reset_index(inplace=True)
-    
-    for _,rw in halfhourly.iterrows():
-        tsmeas = rw.time.strftime('%Y-%m-%dT%H:%M:00Z')
-        jsbody = [{"measurement": "ElectricityCost30m","time": f"{tsmeas}","fields": {"value": rw.cost}}]
-        client.write_points(jsbody)
-
-    updateDailyTotalElecCost(client, ed)
-
+        updateDailyTotalElecCost(client, sd, ed)
+    else:
+        log.warning(f'no recent data for {ts1} to {ts2}')
     return 
 
 
-def updateDailyTotalElecCost(client, ed):
-    sd = ed - datetime.timedelta(days=7)
-    ts1 = sd.strftime('%Y-%m-%dT00:00:00Z')
-    ts2 = ed.strftime('%Y-%m-%dT%H:%M:%SZ')
-    vals = client.query(f"Select value from ElectricityCost30m where time >= '{ts1}' and time <= '{ts2}'")
-    df = pd.DataFrame(vals['ElectricityCost30m'])
-    df.set_index('time', inplace=True)
-    df.index = pd.to_datetime(df.index, format='mixed')
-    daily = df.resample("1d").sum()
-    daily.reset_index(inplace=True)
-    for _,rw in daily.iterrows():
-        tsmeas = rw.time.strftime('%Y-%m-%dT%H:%M:00Z')
-        jsbody = [{"measurement": "ElectricityCostDay","time": f"{tsmeas}","fields": {"value": rw.value}}]
+def updateDailyTotalElecCost(client, startdate, enddate):
+    daystodo = int((enddate - startdate).total_seconds()/86400)
+    for counter in range(daystodo + 1):
+        sd1 = startdate + datetime.timedelta(days=counter)
+        ed1 = sd1 + datetime.timedelta(days=1)
+        ts1 = sd1.strftime('%Y-%m-%dT00:00:00Z')
+        ts2 = ed1.strftime('%Y-%m-%dT00:00:00Z')
+        vals = client.query(f"Select sum(value) as dailyamt from ElectricityCost30m where time > '{ts1}' and time <= '{ts2}'")
+        df = pd.DataFrame(vals['ElectricityCost30m'])
+        dailyamt = float(df.iloc[0].dailyamt)
+        jsbody = [{"measurement": "ElectricityCostDay2","time": f"{ts1}","fields": {"value": dailyamt}}]
         client.write_points(jsbody)
 
 
@@ -190,7 +187,6 @@ def updateMeter(elec=True):
         lasttime = vals.raw['series'][0]['values'][0][0]
         lastval = float(vals.raw['series'][0]['values'][0][1])
     log.info(f'last good value was {lastval} at {lasttime}')
-    print(f'last good value was {lastval} at {lasttime}')
     vals = client.query(f"select time, value from {livetbl} where time >= '{lasttime}'")
     if not vals:
         log.warning('no new consumption data')
@@ -200,7 +196,6 @@ def updateMeter(elec=True):
             wattsadded += float(rw[1])
             ed = rw[0]
     log.info(f'added {wattsadded} since {lasttime}')   
-    print(f'added {wattsadded} since {lasttime}')   
     if elec:
         currentmeter = lastval + wattsadded/1000.0
     else:
@@ -219,7 +214,6 @@ def updateMeter(elec=True):
         authn = HTTPBasicAuth(usr, pwd)
         requests.post(url, data=idbdata, auth=authn)
         log.info(f'updated {metertbl} to {currentmeter} as of {ed}')
-        print(f'updated {metertbl} to {currentmeter} as of {ed}')
     return 
 
 

@@ -22,10 +22,10 @@ from pytz import timezone
 from loadconfig import getApiKey, getAccountId, getDataDir
 from influxconfig import getInfluxUrl, getMeasurementName
 
-PRODUCTS_URL = 'https://api.octopus.energy/v1/products'
-ACCTDETS_URL = 'https://api.octopus.energy/v1/accounts'
-ELEC_URL = 'https://api.octopus.energy/v1/electricity-meter-points'
-GAS_URL = 'https://api.octopus.energy/v1/gas-meter-points'
+PRODUCTS_URL = 'https://api.oegb-kraken.energy/v1/products'
+ACCTDETS_URL = 'https://api.oegb-kraken.energy/v1/accounts'
+ELEC_URL = 'https://api.oegb-kraken.energy/v1/electricity-meter-points'
+GAS_URL = 'https://api.oegb-kraken.energy/v1/gas-meter-points'
 
 CAL_VAL = 39.2
 VOL_CORR = 1.02264
@@ -69,11 +69,11 @@ def getOctopusTariffs():
         log.error(e)
         log.warning('problem analysing data')
         log.warning(data)
-        return 'E-1R-GO-VAR-26-02-11-H', 'G-1R-VAR-22-11-01-H', 'OUTGOING-VAR-24-10-26-H'
+        return 'E-1R-GO-VAR-22-10-14-H', 'G-1R-VAR-22-11-01-H', 'OUTGOING-1R-VAR-24-10-26-H'
 
     if r.status_code != 200:
         log.warning('unable to get data at this time, assuming tariffs')
-        return 'E-1R-GO-VAR-26-02-11-H', 'G-1R-VAR-22-11-01-H', 'OUTGOING-VAR-24-10-26-H'
+        return 'E-1R-GO-VAR-22-10-14-H', 'G-1R-VAR-22-11-01-H', 'OUTGOING-1R-VAR-24-10-26-H'
     data = r.json()
     for mps in data['properties'][0]['electricity_meter_points']:
         agrs = mps['agreements']
@@ -191,11 +191,14 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
     dt = adjustforDST(dt)
     if amt and amt < 0:
         meastype = 'outgoing'
-    if os.path.isfile(f'{meastype}_tariffs.json'):
-        fileage = datetime.datetime.now(tz=datetime.timezone.utc).timestamp() - os.stat(f'{meastype}_tariffs.json').st_mtime 
-        fileage /= 86400
-        if fileage < 7:
-            data = json.loads(open(f'{meastype}_tariffs.json', 'r').read())
+    thisdir = os.path.split(__file__)[0]
+    tariff_file = os.path.join(thisdir, f'{meastype}_tariffs.json')
+    if os.path.isfile(tariff_file):
+        file_mtime = os.stat(tariff_file).st_mtime 
+        fileage = datetime.datetime.now(tz=datetime.timezone.utc).timestamp() - file_mtime
+        #print(tariff_file, fileage, file_mtime)
+        if fileage < 7*86400:
+            data = json.loads(open(tariff_file, 'r').read())
             if 'results' in data:
                 if meastype == 'gas':
                     prices = [float(d['value_inc_vat']) for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
@@ -212,8 +215,13 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
                     return prices[fr_dts.index(min_fr)]
                 for f,t,p in zip(fr_dts,to_dts,prices):
                     if f <= dt and t > dt:
-                        print(dt, p)
+                        #print(dt, p)
                         return p
+        else:
+            log.warning('tariffs data more than 7 days old, refetching it')
+    else:
+        log.warning('tariffs data file not present, refetching it')
+
 
     # if the file doesn't exist or its too old or if the daterange isn't in it, then call the api
     log.info('no current tariff data, retrieving latest')
@@ -224,6 +232,7 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
         tariff = gtariff
     elif meastype == 'outgoing':
         tariff = outgoinget
+        meastype = 'electricity'
     else:
         tariff = etariff
 
@@ -231,7 +240,7 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
 
     base_tariff = tariff[5:-2]
     fromdt = (datetime.datetime.now() - datetime.timedelta(days=90)).replace(hour=0, minute=0, microsecond=0)
-    todt = fromdt + datetime.timedelta(days=daysback+2)
+    todt = datetime.datetime.now()
     url = f'{PRODUCTS_URL}/{base_tariff}/{meastype}-tariffs/{tariff}/' \
         f'standard-unit-rates/?period_from={fromdt.strftime("%Y-%m-%dT%H:%M:%SZ")}&period_to={todt.strftime("%Y-%m-%dT%H:%M:%SZ")}'
     try:
@@ -239,9 +248,13 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
     except Exception:
         log.warning('unable to connect to API')
         return 0
-    
-    data = r.json()
-    open(f'{meastype}_tariffs.json', 'w').write(json.dumps(data))
+
+    if r.json() and b'Not Found' not in r.content:
+        data = r.json()
+        open(tariff_file, 'w').write(json.dumps(data))
+    else:
+        log.warning('falling back to last good tariff file', tariff_file)
+        data = json.loads(open(tariff_file, 'r').read())        
     if meastype == 'gas':
         prices = [float(d['value_inc_vat']) for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
         dtto = [d['valid_to'] for d in data['results'] if d['payment_method']=='DIRECT_DEBIT']
@@ -260,7 +273,7 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
         return prices[fr_dts.index(min_fr)]
     for f,t,p in zip(fr_dts,to_dts,prices):
         if f <= dt and t > dt:
-            print(dt, p)
+            #print(dt, p)
             return p
 
     return prices[-1]

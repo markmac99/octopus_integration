@@ -2,7 +2,7 @@
   vars_files: 
     - /mnt/c/Users/{{ lookup('env','USER' )}}/apikeys/mqvariables.enc
   vars:
-    srcdir: "/mnt/c/Users/{{ lookup('env','USER' )}}/OneDrive/dev/tackley/octopus_integration"
+    srcdir: "/mnt/c/Users/{{ lookup('env','USER' )}}/OneDrive/dev/tackley/energy/octopus_integration"
   tasks:
   - name: import variables 
     include_vars: local-vars.yml

@@ -4,11 +4,13 @@
 
 import datetime
 import os
+import sys
 import pandas as pd
 from influxdb import InfluxDBClient
 import logging
 import requests
 from requests.auth import HTTPBasicAuth 
+import argparse
 
 from influxconfig import getInfluxUrl, getMeasurementName
 
@@ -217,24 +219,51 @@ def updateMeter(elec=True):
     return 
 
 
-if __name__ == '__main__': 
+def initLogging(action):
     logpath = os.path.expanduser('~/logs')
-    logname=os.path.join(logpath, 'octopus_misc.log')
+    logname=os.path.join(logpath, f'octopus_{action}.log')
     log.setLevel(logging.INFO)
     fh = logging.FileHandler(logname, 'a+')
     fh.setLevel(logging.DEBUG)
-    fh.setFormatter(logging.Formatter('%(asctime)s | %(levelname)s | %(message)s'))
+    formatter = logging.Formatter(fmt='%(asctime)s-%(levelname)s-%(module)s-line:%(lineno)d - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    fh.setFormatter(formatter)
     log.addHandler(fh)
 
-    log.info('Starting')
-    updateDailyHouseElectricity(datetime.datetime.now())
-    updateDailyHouseElectricity(datetime.datetime.now() + datetime.timedelta(days=-1))
-    updateDailyHouseElectricity(datetime.datetime.now() + datetime.timedelta(days=-2))
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setLevel(logging.DEBUG)
+    ch.setFormatter(formatter)
+    log.addHandler(ch)
+    return 
 
-    updateDailyHouseGas(datetime.datetime.now())
-    updateDailyHouseGas(datetime.datetime.now() + datetime.timedelta(days=-1))
-    updateDailyHouseGas(datetime.datetime.now() + datetime.timedelta(days=-2))
 
-    updateMeter(elec=True)
-    updateMeter(elec=False)
+if __name__ == '__main__': 
+    arg_parser = argparse.ArgumentParser(description='Perform various actions on data from Octopus')
+    arg_parser.add_argument('action' , metavar='ACTION', type=str, help='action to perform')
+    cml_args = arg_parser.parse_args()
+
+
+    action = cml_args.action.lower()
+    if action == 'daily':
+        initLogging(action)
+        log.info(f'Starting to update {action}')
+        updateDailyHouseElectricity(datetime.datetime.now())
+        updateDailyHouseElectricity(datetime.datetime.now() + datetime.timedelta(days=-1))
+        updateDailyHouseElectricity(datetime.datetime.now() + datetime.timedelta(days=-2))
+
+        updateDailyHouseGas(datetime.datetime.now())
+        updateDailyHouseGas(datetime.datetime.now() + datetime.timedelta(days=-1))
+        updateDailyHouseGas(datetime.datetime.now() + datetime.timedelta(days=-2))
+
+        updateMeter(elec=True)
+        updateMeter(elec=False)
+
+    elif action == 'costs':
+        initLogging(action)
+        log.info(f'Starting to update {action}')
+        updateRecentElectricityCost()
+        updateRecentGasCost()   
+
+    else:
+        initLogging(action)
+        log.warning(f'action {action} not supported')     
     log.info('Finished')

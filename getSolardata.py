@@ -3,6 +3,7 @@
 # Python code to retrieve solar estimates from forecast.solar
 
 import os
+import sys
 import requests
 from requests.auth import HTTPBasicAuth 
 import datetime
@@ -89,17 +90,26 @@ def updateInfluxDB(df, outdir):
     return len(df)
 
 
-if __name__ == '__main__':
-    datadir = getDataDir()
-    os.makedirs(datadir, exist_ok=True)
+def initLogging(logname):
     logpath = os.path.expanduser('~/logs')
-    os.makedirs(logpath, exist_ok=True)
-    logname=os.path.join(logpath, 'forecast-solar.log')    
+    logname=os.path.join(logpath, f'{logname}.log')
     log.setLevel(logging.INFO)
     fh = logging.FileHandler(logname, 'a+')
     fh.setLevel(logging.DEBUG)
-    fh.setFormatter(logging.Formatter('%(asctime)s | %(levelname)s | %(message)s'))
+    formatter = logging.Formatter(fmt='%(asctime)s-%(levelname)s-%(module)s-line:%(lineno)d - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    fh.setFormatter(formatter)
     log.addHandler(fh)
+
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setLevel(logging.DEBUG)
+    ch.setFormatter(formatter)
+    log.addHandler(ch)
+    return 
+
+if __name__ == '__main__':
+    datadir = getDataDir()
+    os.makedirs(datadir, exist_ok=True)
+    initLogging('forecast_solar')
 
     log.info('Starting data capture')
     dta = getForecastData()

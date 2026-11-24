@@ -104,6 +104,7 @@ def getOctopusTariffs():
         if fromdt <= currdt and todt >= currdt:
             gas_tariff = agr['tariff_code']
             break
+    log.info(f'tariffs are electricity import {elec_tariff} export{export_tariff} and gas {gas_tariff}')
     return elec_tariff, gas_tariff, export_tariff
 
 
@@ -196,7 +197,6 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
     if os.path.isfile(tariff_file):
         file_mtime = os.stat(tariff_file).st_mtime 
         fileage = datetime.datetime.now(tz=datetime.timezone.utc).timestamp() - file_mtime
-        #print(tariff_file, fileage, file_mtime)
         if fileage < 7*86400:
             data = json.loads(open(tariff_file, 'r').read())
             if 'results' in data:
@@ -215,7 +215,6 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
                     return prices[fr_dts.index(min_fr)]
                 for f,t,p in zip(fr_dts,to_dts,prices):
                     if f <= dt and t > dt:
-                        #print(dt, p)
                         return p
         else:
             log.warning('tariffs data more than 7 days old, refetching it')
@@ -273,7 +272,6 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
         return prices[fr_dts.index(min_fr)]
     for f,t,p in zip(fr_dts,to_dts,prices):
         if f <= dt and t > dt:
-            #print(dt, p)
             return p
 
     return prices[-1]
@@ -283,7 +281,7 @@ def getDataFromOctopus(mpans, esns, isexps, mprn, gsns, daysback=7):
     for i,mpan in enumerate(mpans):
         isexp = isexps[i]
         for esn in esns[i]:
-            #print(mpan, esn)
+            log.info(f'electricity meters are {mpan} {esn}')
             datadf = getOneDataset(mpan, esn, True, daysback=daysback)
             if datadf is not None: 
                 try:
@@ -293,7 +291,7 @@ def getDataFromOctopus(mpans, esns, isexps, mprn, gsns, daysback=7):
                 except Exception as e:
                     log.warning(e)
     for gsn in gsns:
-        #print(mprn, gsn)
+        log.info(f'gas meters are {mprn} {gsn}')
         datadf = getOneDataset(mprn, gsn, False, daysback=daysback)
         if datadf is not None: 
             try:
@@ -329,20 +327,29 @@ def updateInfluxDB(df, typ, outdir):
     return len(df)
 
 
+def initLogging(logname):
+    logpath = os.path.expanduser('~/logs')
+    logname=os.path.join(logpath, f'{logname}.log')
+    log.setLevel(logging.INFO)
+    fh = logging.FileHandler(logname, 'a+')
+    fh.setLevel(logging.DEBUG)
+    formatter = logging.Formatter(fmt='%(asctime)s-%(levelname)s-%(module)s-line:%(lineno)d - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    fh.setFormatter(formatter)
+    log.addHandler(fh)
+
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setLevel(logging.DEBUG)
+    ch.setFormatter(formatter)
+    log.addHandler(ch)
+    return 
+
+
 if __name__ == '__main__': 
     daysback = 7
     if len(sys.argv) > 1:
         daysback = int(sys.argv[1])
 
-    os.makedirs(getDataDir(), exist_ok=True)
-    logpath = os.path.expanduser('~/logs')
-    os.makedirs(logpath, exist_ok=True)
-    logname=os.path.join(logpath, 'octopus.log')    
-    log.setLevel(logging.INFO)
-    fh = logging.FileHandler(logname, 'a+')
-    fh.setLevel(logging.DEBUG)
-    fh.setFormatter(logging.Formatter('%(asctime)s | %(levelname)s | %(message)s'))
-    log.addHandler(fh)
+    initLogging('octopus')
 
     log.info('Starting data capture')
     local_path =os.path.dirname(os.path.abspath(__file__))

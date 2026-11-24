@@ -4,5 +4,4 @@ here="$( cd "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
 cd $here
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate openhabstuff
-python -c "from miscUpdaters import updateRecentElectricityCost;updateRecentElectricityCost()"
-python -c "from miscUpdaters import updateRecentGasCost;updateRecentGasCost()"
+python $here/miscUpdaters.py costs

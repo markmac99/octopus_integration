@@ -19,7 +19,7 @@ import json
 from pytz import timezone
 
 
-from loadconfig import getApiKey, getAccountId, getDataDir
+from octopusConfig import getApiKey, getAccountId, getDataDir
 from influxconfig import getInfluxUrl, getMeasurementName
 
 PRODUCTS_URL = 'https://api.oegb-kraken.energy/v1/products'

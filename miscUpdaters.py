@@ -23,7 +23,7 @@ def updateRecentGasCost(ed=None, lookback=90):
     if not ed:
         ed = datetime.datetime.now().replace(tzinfo=datetime.timezone.utc)
     sd = ed - datetime.timedelta(minutes=lookback)
-    ts1 = sd.strftime('%Y-%m-%dT%H:00:00Z')
+    ts1 = sd.strftime('%Y-%m-%dT00:00:00Z')
     ts2 = ed.strftime('%Y-%m-%dT%H:%M:%SZ')
     vals = client.query(f"Select value from OctopusGas30m where time >= '{ts1}' and time < '{ts2}'")
     if vals:
@@ -50,8 +50,8 @@ def updateRecentGasCost(ed=None, lookback=90):
             client.write_points(jsbody)
 
         updateDailyTotalGasCost(client, ed, daysback=lookback/24/60)
-    else:
-        log.warning(f'no data avaiable for {ts1} to {ts2}')
+    #else:
+    #    log.warning(f'no data available for {ts1} to {ts2}')
     return 
 
 

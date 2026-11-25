@@ -9,20 +9,37 @@
   - name: Copy files
     copy: src={{ item.src }} dest={{ item.dest }} mode={{ item.mode }}
     with_items:
-    - {src: '{{srcdir}}/updateCosts.sh', dest: '{{destdir}}/', mode: '754', backup: yes }
     - {src: '{{srcdir}}/influxconfig.py', dest: '{{destdir}}/', mode: '644', backup: yes }
     - {src: '{{srcdir}}/octopusConfig.py', dest: '{{destdir}}/', mode: '644', backup: yes }
+    - {src: '{{srcdir}}/mqConfig.py.sample', dest: '{{destdir}}/mqConfig.py', mode: '644', backup: yes }
     - {src: '{{srcdir}}/octopus.py', dest: '{{destdir}}/', mode: '644', backup: yes }
     - {src: '{{srcdir}}/updateOpenhab.py', dest: '{{destdir}}/', mode: '644', backup: yes }
     - {src: '{{srcdir}}/getOctopusData.sh', dest: '{{destdir}}/', mode: '754', backup: yes }
     - {src: '{{srcdir}}/miscUpdaters.py', dest: '{{destdir}}/', mode: '644', backup: yes }
     - {src: '{{srcdir}}/miscUpdates.sh', dest: '{{destdir}}/', mode: '754', backup: yes }
+    - {src: '{{srcdir}}/updateCosts.sh', dest: '{{destdir}}/', mode: '754', backup: yes }
     - {src: '{{srcdir}}/requirements.txt', dest: '{{destdir}}/', mode: '754', backup: yes }
-    - {src: '~/.ssh/influxdb', dest: '~/.ssh/', mode: '600', backup: yes }
-    - {src: '~/.ssh/octopus_apikey', dest: '~/.ssh/', mode: '600', backup: yes }
-    - {src: '~/.ssh/ohpass', dest: '~/.ssh/', mode: '600', backup: yes }
+#    - {src: '~/.ssh/influxdb', dest: '~/.ssh/', mode: '600', backup: yes }
+#    - {src: '~/.ssh/octopus_apikey', dest: '~/.ssh/', mode: '600', backup: yes }
+#    - {src: '~/.ssh/ohpass', dest: '~/.ssh/', mode: '600', backup: yes }
+
   - name: set datadir
     ansible.builtin.replace:
       path: '{{destdir}}/octopusConfig.py'
       regexp: 'DATADIRSUBST'
       replace: '{{ datadir }}'
+  - name: update broker
+    ansible.builtin.replace:
+      path: '{{destdir}}/mqConfig.py'
+      regexp: "someserver.net"
+      replace: "metsatpi"
+  - name: update mquser
+    ansible.builtin.replace:
+      path: '{{destdir}}/mqConfig.py'
+      regexp: "mquser"
+      replace: "sensors"
+  - name: update mqpasswd
+    ansible.builtin.replace:
+      path: '{{destdir}}/mqConfig.py'
+      regexp: "mqpass"
+      replace: "{{ mqsenspassword }}"

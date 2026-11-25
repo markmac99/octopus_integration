@@ -11,20 +11,25 @@ import logging
 import requests
 from requests.auth import HTTPBasicAuth 
 import argparse
+import ssl
+from paho.mqtt.publish import multiple
+
 
 from influxconfig import getInfluxUrl, getMeasurementName
-
+from mqConfig import readConfig
 from octopus import getPrice
 
 log = logging.getLogger('octopus_misc')
 
 
-def updateRecentGasCost(ed=None, lookback=90):
+def updateRecentGasCost(ed=None, lookback=4):
     _, usr, pwd, infhost, infport, ohdb = getInfluxUrl()
     client = InfluxDBClient(host=infhost, port=infport, username=usr, password=pwd, database=ohdb)
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
     if not ed:
-        ed = datetime.datetime.now().replace(tzinfo=datetime.timezone.utc)
-    sd = ed - datetime.timedelta(minutes=lookback)
+        ed = datetime.datetime.now(tz=datetime.timezone.utc)
+        now = ed
+    sd = ed - datetime.timedelta(days=lookback)
     ts1 = sd.strftime('%Y-%m-%dT00:00:00Z')
     ts2 = ed.strftime('%Y-%m-%dT%H:%M:%SZ')
     vals = client.query(f"Select value from OctopusGas30m where time >= '{ts1}' and time < '{ts2}'")
@@ -51,7 +56,11 @@ def updateRecentGasCost(ed=None, lookback=90):
             jsbody = [{"measurement": "GasCost30m","time": f"{tsmeas}","fields": {"value": rw.cost}}]
             client.write_points(jsbody)
 
-        updateDailyTotalGasCost(client, ed, daysback=lookback/24/60)
+        if now != ed:
+            updateDailyTotalGasCost(client, ed, daysback=lookback)
+        else:
+            updateDailyTotalGasCost(client, ed - datetime.timedelta(days=1), daysback=lookback)
+            updateCurrentDayCost(elec=False)
     #else:
     #    log.warning(f'no data available for {ts1} to {ts2}')
     return 
@@ -80,8 +89,10 @@ def updateRecentElectricityCost(ed=None, lookback=90, src='Enphase_Envoy_Grid_Wa
     """
     _, usr, pwd, infhost, infport, ohdb = getInfluxUrl()
     client = InfluxDBClient(host=infhost, port=infport, username=usr, password=pwd, database=ohdb)
+    now = datetime.datetime.now().replace(tzinfo=datetime.timezone.utc)
     if not ed:
         ed = datetime.datetime.now().replace(tzinfo=datetime.timezone.utc)
+        now = ed
     sd = ed - datetime.timedelta(minutes=lookback)
     ts1 = sd.strftime('%Y-%m-%dT%H:00:00Z')
     ts2 = ed.strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -104,7 +115,12 @@ def updateRecentElectricityCost(ed=None, lookback=90, src='Enphase_Envoy_Grid_Wa
             jsbody = [{"measurement": "ElectricityCost30m","time": f"{tsmeas}","fields": {"value": rw.cost}}]
             client.write_points(jsbody)
 
-        updateDailyTotalElecCost(client, sd, ed)
+        if now != ed:
+            updateDailyTotalElecCost(client, sd, ed)
+        else:
+            updateDailyTotalElecCost(client, sd, ed - datetime.timedelta(days=1))
+            updateCurrentDayCost(elec=True)
+
     else:
         log.warning(f'no recent data for {ts1} to {ts2}')
     return 
@@ -122,6 +138,47 @@ def updateDailyTotalElecCost(client, startdate, enddate):
         dailyamt = float(df.iloc[0].dailyamt)
         jsbody = [{"measurement": "ElectricityCostDay2","time": f"{ts1}","fields": {"value": dailyamt}}]
         client.write_points(jsbody)
+
+
+def updateCurrentDayCost(elec=True):
+    log.info(f'checking {"electricity" if elec else"gas"} cost')
+
+    _, usr, pwd, infhost, infport, ohdb = getInfluxUrl()
+    client = InfluxDBClient(host=infhost, port=infport, username=usr, password=pwd, database=ohdb)
+
+    sd1 = datetime.datetime.now(tz=datetime.timezone.utc)
+    ed1 = sd1 + datetime.timedelta(days=1)
+    ts1 = sd1.strftime('%Y-%m-%dT00:00:00Z')
+    ts2 = ed1.strftime('%Y-%m-%dT00:00:00Z')
+    if elec:
+        vals = client.query(f"Select sum(value) as dailyamt from ElectricityCost30m where time > '{ts1}' and time <= '{ts2}'")
+        df = pd.DataFrame(vals['ElectricityCost30m'])
+    else:
+        vals = client.query(f"Select sum(value) as dailyamt from GasCost30m where time > '{ts1}' and time <= '{ts2}'")
+        df = pd.DataFrame(vals['GasCost30m'])
+    if len(df) > 0:
+        dailyamt = float(df.iloc[0].dailyamt)
+    else:
+        dailyamt = 0
+    
+    log.info('connecting to MQ')
+    broker, mqport, username, passwd = readConfig()
+    if elec:
+        topic = 'house/electricity'
+    else:
+        topic = 'house/gas'
+    auth = {'username': username, 'password': passwd}
+    clientid = 'houseenergy'
+    if int(mqport) == 8883:
+        tls = {'ca_certs':None, 'cert_reqs':ssl.CERT_REQUIRED, 'tls_version':ssl.PROTOCOL_TLS}
+    else:
+        tls = None
+    msgs = []   
+    msgs.append((f'{topic}/daily_cost', round(dailyamt,2), 1))
+    log.info(msgs)
+    multiple(msgs=msgs, hostname=broker, port=int(mqport), client_id=clientid, keepalive=60, auth=auth, tls=tls)
+    log.info('done')
+
 
 
 def updateDailyHouseElectricity(sd):
@@ -171,12 +228,12 @@ def updateMeter(elec=True):
     client = InfluxDBClient(host=infhost, port=infport, username=usr, password=pwd, database=ohdb)
     currentmeter = 0
 
-    if elec:
+    livetbl = getMeasurementName('electricity' if elec else 'gas')
+    log.info(f'checking {"electricity" if elec else"gas"} meter')
+    if elec: 
         metertbl = 'HouseElectricityMeterReading'
-        livetbl = 'OctopusElect30m'
     else:
         metertbl = 'HouseGasMeterReading'
-        livetbl = 'OctopusGas30m'
 
     vals = client.query(f"select last(value)  from {metertbl}")
     if not vals:
@@ -191,7 +248,7 @@ def updateMeter(elec=True):
     log.info(f'last good value was {lastval} at {lasttime}')
     vals = client.query(f"select time, value from {livetbl} where time >= '{lasttime}'")
     if not vals:
-        log.warning('no new consumption data')
+        log.info('no new consumption data')
         return 
     wattsadded = 0
     for rw in vals.raw['series'][0]['values']:
@@ -207,15 +264,24 @@ def updateMeter(elec=True):
         currentmeter = lastval + cumadded
     
     if currentmeter > 0:
-        try:
-            ts = datetime.datetime.strptime(ed, '%Y-%m-%dT%H:%M:%SZ')
-        except:
-            ts = datetime.datetime.strptime(ed, '%Y-%m-%dT%H:%M:%S.%fZ')
-        lasttime_ts = int(ts.timestamp()*1e9)
-        idbdata = f'{metertbl} value={currentmeter} {lasttime_ts}\n'
-        authn = HTTPBasicAuth(usr, pwd)
-        requests.post(url, data=idbdata, auth=authn)
-        log.info(f'updated {metertbl} to {currentmeter} as of {ed}')
+
+        log.info('connecting to MQ')
+        broker, mqport, username, passwd = readConfig()
+        if elec:
+            topic  = 'house/electricity'
+        else:
+            topic = 'house/gas'
+        auth = {'username': username, 'password': passwd}
+        clientid = 'houseenergy'
+        if int(mqport) == 8883:
+            tls = {'ca_certs':None, 'cert_reqs':ssl.CERT_REQUIRED, 'tls_version':ssl.PROTOCOL_TLS}
+        else:
+            tls = None
+        msgs = []   
+        msgs.append((f'{topic}/meter_reading', round(currentmeter,1), 1))
+        log.info(msgs)
+        multiple(msgs=msgs, hostname=broker, port=int(mqport), client_id=clientid, keepalive=60, auth=auth, tls=tls)
+        log.info('done')
     return 
 
 
@@ -230,7 +296,7 @@ def initLogging(action):
     log.addHandler(fh)
 
     ch = logging.StreamHandler(sys.stdout)
-    ch.setLevel(logging.DEBUG)
+    ch.setLevel(logging.INFO)
     ch.setFormatter(formatter)
     log.addHandler(ch)
     return 
@@ -254,6 +320,9 @@ if __name__ == '__main__':
         updateDailyHouseGas(datetime.datetime.now() + datetime.timedelta(days=-1))
         updateDailyHouseGas(datetime.datetime.now() + datetime.timedelta(days=-2))
 
+    elif action == 'meters':
+        initLogging(action)
+        log.info(f'Starting to update {action}')
         updateMeter(elec=True)
         updateMeter(elec=False)
 

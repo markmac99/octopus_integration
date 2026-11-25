@@ -268,8 +268,11 @@ def getPrice(dt, meastype='electricity', daysback=7, amt=None):
     fr_dts = [datetime.datetime(2100,1,1,tzinfo=datetime.timezone.utc) if d is None else 
                 datetime.datetime.strptime(d, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc) for d in dtfr]
     min_fr = min(fr_dts)
+    max_to = min(to_dts)
     if dt < min_fr:
         return prices[fr_dts.index(min_fr)]
+    if dt > max_to:
+        return prices[to_dts.index(max_to)]
     for f,t,p in zip(fr_dts,to_dts,prices):
         if f <= dt and t > dt:
             return p
